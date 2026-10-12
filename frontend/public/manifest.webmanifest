@@ -1,0 +1,40 @@
+
+{
+    "name": "Tadreeby Team Hub",
+    "short_name": "Team Hub",
+    "description": "Team task management workspace for the Tadreeby development team",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#F8FAFC",
+    "theme_color": "#2563EB",
+    "icons": [
+        {
+            "src": "/icons/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "shortcuts": [
+        {
+            "name": "My Tasks",
+            "url": "/my-tasks"
+        },
+        {
+            "name": "Kanban Board",
+            "url": "/board"
+        },
+        {
+            "name": "Timeline",
+            "url": "/timeline"
+        }
+    ]
+}
