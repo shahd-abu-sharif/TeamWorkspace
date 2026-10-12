@@ -117,7 +117,7 @@ export function AppLayout() {
     if (!('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
     for (const item of fresh.slice(0, 3).reverse()) {
-      const notification = new Notification(item.title, { body: item.body, icon: '/favicon.svg', tag: item.id });
+      const notification = new Notification(item.title, { body: item.body, icon: '/icons/tadreeby-192.png', tag: item.id });
       notification.onclick = () => {
         window.focus();
         navigate(item.url || '/notifications');

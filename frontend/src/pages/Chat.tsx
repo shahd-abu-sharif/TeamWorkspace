@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AtSign, Check, CheckCheck, MessageCircle, Send } from 'lucide-react';
+import { AtSign, Check, CheckCheck, MessageCircle, Send, UserRoundPlus, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '../lib/api';
@@ -32,6 +32,7 @@ export function ChatPage() {
   const recipientId = searchParams.get('with');
   const [body, setBody] = useState('');
   const [mentionedIds, setMentionedIds] = useState<string[]>([]);
+  const [newChatOpen, setNewChatOpen] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   const membersQuery = useQuery({
@@ -102,6 +103,9 @@ export function ChatPage() {
   return <div className="mx-auto flex min-h-[calc(100dvh-10rem)] max-w-6xl flex-col">
     <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
       <div><h1 className="text-2xl font-semibold">{t('chat.title')}</h1><p className="mt-1 text-sm text-gray-500">{t('chat.subtitle')}</p></div>
+      <button type="button" onClick={() => setNewChatOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
+        <UserRoundPlus className="size-4" />{t('chat.startPrivateChat')}
+      </button>
     </header>
 
     <section aria-label={t('chat.title')} className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm md:grid-cols-[220px_minmax(0,1fr)]">
@@ -158,5 +162,25 @@ export function ChatPage() {
         {send.error && <p role="alert" className="px-4 pb-3 text-sm text-red-600">{(send.error as Error).message}</p>}
       </div>
     </section>
+    {newChatOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setNewChatOpen(false); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="new-private-chat-title" className="w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+        <header className="flex items-start justify-between gap-4 border-b border-gray-100 p-5">
+          <div><h2 id="new-private-chat-title" className="font-semibold">{t('chat.startPrivateChat')}</h2><p className="mt-1 text-sm text-gray-500">{t('chat.chooseTeammate')}</p></div>
+          <button type="button" onClick={() => setNewChatOpen(false)} aria-label={t('common.close')} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"><X className="size-4" /></button>
+        </header>
+        <div className="max-h-[min(60vh,28rem)] overflow-y-auto p-2">
+          {membersQuery.isLoading && <p className="p-4 text-sm text-gray-500">{t('common.loading')}</p>}
+          {!membersQuery.isLoading && members.length === 0 && <p className="p-4 text-sm text-gray-500">{t('chat.noTeammates')}</p>}
+          {members.map((member) => {
+            const presence = presenceLabel(member.user.lastSeenAt, member.user.isOnline);
+            return <button key={member.user.id} type="button" onClick={() => { selectChat(member.user.id); setNewChatOpen(false); }} className="flex w-full items-center gap-3 rounded-xl p-3 text-start hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+              <span className="relative grid size-10 shrink-0 place-items-center rounded-full bg-blue-100 font-semibold text-blue-700">{member.user.name.slice(0, 1).toUpperCase()}<span className={`absolute -bottom-0.5 -end-0.5 size-3 rounded-full border-2 border-white ${presence.online ? 'bg-emerald-500' : 'bg-gray-300'}`} /></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium text-gray-900">{member.user.name}</span><span className="block truncate text-xs text-gray-500">{[presence.label, t(`auth.${member.role?.toLowerCase() ?? 'member'}`)].join(' · ')}</span></span>
+              <MessageCircle className="size-4 shrink-0 text-blue-600" />
+            </button>;
+          })}
+        </div>
+      </section>
+    </div>}
   </div>;
 }

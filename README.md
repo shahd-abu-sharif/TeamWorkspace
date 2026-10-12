@@ -1,15 +1,22 @@
-# Team Workspace
+# Tadreeby Team Hub
 
-A task and collaboration workspace for the Tadreeby development team.
+A team task and collaboration workspace with a NestJS API and a React web app.
 
-This repository uses separate branches for the two applications:
+## Repository branches
 
-- `backend` contains the NestJS API and Prisma database schema.
-- `frontend` contains the React and Vite web application.
+- `main` contains the complete project (`backend/` and `frontend/`) and is the
+  branch to use for local development and deployments that build the whole app.
+- `backend` contains only the API.
+- `frontend` contains only the web app.
 
-## Backend
+You can stay on `main` to work on both apps. The focused branches remain
+available for services that deploy the frontend and backend separately.
 
-Requires Node.js, npm, and PostgreSQL. From the `backend` branch:
+## Run locally
+
+Requirements: Node.js, npm, and PostgreSQL.
+
+### Backend
 
 ```bash
 cd backend
@@ -19,12 +26,11 @@ npx prisma migrate deploy
 npm run start:dev
 ```
 
-The API defaults to `http://localhost:3000/api`. Set `DATABASE_URL`, JWT secrets,
-and `WEB_ORIGIN` in `backend/.env` for your local environment.
+Set `DATABASE_URL`, JWT secrets, and `WEB_ORIGIN` in `backend/.env`.
 
-## Frontend
+### Frontend
 
-From the `frontend` branch:
+In a second terminal, from the repository root:
 
 ```bash
 cd frontend
@@ -33,8 +39,17 @@ npm install
 npm run dev
 ```
 
-The web app defaults to `http://localhost:5173` and uses
-`VITE_API_URL=http://localhost:3000/api` unless overridden.
+The frontend uses `VITE_API_URL=http://localhost:3000/api` by default. Set it to
+the deployed API URL when building for production.
 
-Never commit `.env` files or production credentials. Use the `.env.example`
-files as templates and provide real values through local configuration.
+## Deployment
+
+Deploy the API and web app as separate services from `main`, or deploy each
+focused branch if the hosting provider requires it. Provide a PostgreSQL
+database, configure the backend environment variables from
+`backend/.env.example`, run `npx prisma migrate deploy`, and set the frontend's
+`VITE_API_URL` to the public API URL before running `npm run build` in
+`frontend/`.
+
+Never commit `.env` files or production secrets. Use the `.env.example` files
+as templates and configure secrets in the hosting provider.

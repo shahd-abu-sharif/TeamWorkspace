@@ -3,8 +3,8 @@ self.addEventListener('push', (event) => {
   try { payload = event.data?.json() ?? {}; } catch { payload = { body: event.data?.text() ?? '' }; }
   event.waitUntil(self.registration.showNotification(payload.title || 'Tadreeby Team Hub', {
     body: payload.body || '',
-    icon: '/favicon.svg',
-    badge: '/favicon.svg',
+    icon: '/icons/tadreeby-192.png',
+    badge: '/icons/tadreeby-192.png',
     tag: payload.tag || payload.id,
     data: { url: payload.url || '/notifications' },
   }));
