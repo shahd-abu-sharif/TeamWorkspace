@@ -18,6 +18,7 @@ async function bootstrap() {
     origin: [
       'http://localhost:5173', 
       'https://shahd-abu-sharif.github.io', 
+      'https://tadreeby-team-workspace.vercel.app',
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
