@@ -1,13 +1,18 @@
 self.addEventListener('push', (event) => {
   let payload = {};
   try { payload = event.data?.json() ?? {}; } catch { payload = { body: event.data?.text() ?? '' }; }
-  event.waitUntil(self.registration.showNotification(payload.title || 'Tadreeby Team Hub', {
-    body: payload.body || '',
-    icon: '/icons/tadreeby-192.png',
-    badge: '/icons/tadreeby-192.png',
-    tag: payload.tag || payload.id,
-    data: { url: payload.url || '/notifications' },
-  }));
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (clients.some((client) => client.visibilityState === 'visible')) return;
+
+    await self.registration.showNotification(payload.title || 'Tadreeby Team Hub', {
+      body: payload.body || '',
+      icon: '/favicon.svg',
+      badge: '/favicon.svg',
+      tag: payload.tag || payload.id,
+      data: { url: payload.url || '/notifications' },
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {

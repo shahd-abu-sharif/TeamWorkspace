@@ -100,8 +100,8 @@ export function ChatPage() {
     setBody(nextBody);
     setMentionedIds((current) => current.includes(member.id) ? current : [...current, member.id]);
   };
-  return <div className="mx-auto flex min-h-[calc(100dvh-10rem)] max-w-6xl flex-col">
-    <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+  return <div className="mx-auto flex h-[calc(100dvh-3rem)] max-w-6xl flex-col overflow-hidden p-4">
+    <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 pb-4">
       <div><h1 className="text-2xl font-semibold">{t('chat.title')}</h1><p className="mt-1 text-sm text-gray-500">{t('chat.subtitle')}</p></div>
       <button type="button" onClick={() => setNewChatOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
         <UserRoundPlus className="size-4" />{t('chat.startPrivateChat')}
@@ -125,7 +125,7 @@ export function ChatPage() {
         })}
       </aside>
 
-      <div className="flex min-h-[420px] min-w-0 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-col">
         <div className="border-b border-gray-100 px-4 py-3">
           <h2 className="font-semibold">{recipient ? recipient.name : t('chat.teamRoom')}</h2>
           {recipient && <p className="mt-0.5 text-xs text-gray-500">{[presenceLabel(recipientMember?.user.lastSeenAt, recipientMember?.user.isOnline).label, t(`auth.${recipientMember?.role?.toLowerCase() ?? 'member'}`), ...(recipientMember?.specialties?.length ? recipientMember.specialties : recipientMember?.specialty ? [recipientMember.specialty] : []), t('chat.privateSubtitle')].join(' · ')}</p>}

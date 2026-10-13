@@ -158,10 +158,11 @@
         "openTask": "Open task",
         "empty": "No notifications here.",
         "enablePush": "Turn on push notifications",
-        "enablePushDescription": "Get notified on this device when a task is assigned to you, a deadline is approaching, or someone mentions you. Desktop alerts work while Tadreeby is open. Background push requires server setup.",
+        "enablePushDescription": "Get notified on this device when a task is assigned to you, a deadline is approaching, or someone mentions you. Once enabled, notifications can arrive with the tab closed while your browser and operating system allow them.",
         "enableButton": "Enable notifications",
-        "enabled": "Desktop notifications are enabled while Tadreeby is open.",
+        "enabled": "Notifications are enabled on this device and can arrive while the tab is closed.",
         "blocked": "Notifications are blocked in your browser settings.",
+        "pushServiceUnavailable": "Your browser could not reach its push service. Check your internet connection, disable any VPN or firewall rule blocking browser push, restart the browser, and try again.",
         "enableError": "Could not enable push notifications."
     },
     "settings": {

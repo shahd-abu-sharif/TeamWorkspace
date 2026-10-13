@@ -39,8 +39,10 @@ npm install
 npm run dev
 ```
 
-The frontend uses `VITE_API_URL=http://localhost:3000/api` by default. Set it to
-the deployed API URL when building for production.
+During development, the frontend sends `/api` requests through Vite's proxy to
+`http://localhost:3000`, avoiding cross-origin issues between `localhost` and
+`127.0.0.1`. Set `VITE_API_URL` to the deployed API URL when building for
+production.
 
 ## Deployment
 

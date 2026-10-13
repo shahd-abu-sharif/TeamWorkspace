@@ -34,7 +34,7 @@ export class NotificationsService {
     }
 
     get publicKey() {
-        return process.env.VAPID_PUBLIC_KEY ?? null;
+        return this.pushReady ? process.env.VAPID_PUBLIC_KEY ?? null : null;
     }
 
     // ---------------------------------------------------------------- creation

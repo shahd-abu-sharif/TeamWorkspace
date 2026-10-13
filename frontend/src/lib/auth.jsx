@@ -19,7 +19,7 @@ export function AuthProvider({ children }) {
         (async () => {
             try {
                 const res = await fetch(
-                    `${import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'}/auth/refresh`,
+                    `${import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL ?? '/api')}/auth/refresh`,
                     { method: 'POST', credentials: 'include' },
                 );
                 if (res.ok) applySession(await res.json());

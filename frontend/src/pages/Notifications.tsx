@@ -2,9 +2,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Bell, BellRing, Check, CheckCheck, Smartphone } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { apiClient } from '../lib/api';
-import { enablePush, pushState, registerServiceWorker } from '../lib/push';
+import { enablePush, pushState, syncPushSubscription } from '../lib/push';
 import { btnPrimary, btnSecondary } from '../components/QuickCreateTask';
 import { useTranslation } from 'react-i18next';
 
@@ -24,6 +24,7 @@ export function NotificationsPage() {
     const qc = useQueryClient();
     const [tab, setTab] = useState<'all' | 'unread'>('all');
     const [pushMessage, setPushMessage] = useState<string | null>(null);
+    const [pushActive, setPushActive] = useState(false);
 
     const { data, isLoading } = useQuery({
         queryKey: ['notifications', tab],
@@ -51,15 +52,34 @@ export function NotificationsPage() {
 
     const state = pushState();
 
+    useEffect(() => {
+        let cancelled = false;
+        syncPushSubscription()
+            .then((active) => {
+                if (!cancelled) setPushActive(active);
+            })
+            .catch((error) => {
+                if (!cancelled) setPushMessage((error as Error).message);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const requestPush = async () => {
         setPushMessage(null);
-        await registerServiceWorker();
-        const result = await enablePush();
-        setPushMessage(
-            result.ok
+        try {
+            const result = await enablePush();
+            setPushActive(result.ok);
+            setPushMessage(result.ok
                 ? t('notifications.enabled')
-                : result.reason ?? t('notifications.enableError'),
-        );
+                : result.reason?.startsWith('notifications.')
+                    ? t(result.reason)
+                    : result.reason ?? t('notifications.enableError'));
+        } catch (error) {
+            setPushActive(false);
+            setPushMessage((error as Error).message || t('notifications.enableError'));
+        }
     };
 
     return (
@@ -79,7 +99,7 @@ export function NotificationsPage() {
             </header>
 
             {/* Push permission is requested only here, after the user opts in. */}
-            {state !== 'granted' && (
+            {!pushActive && (
                 <section className="rounded-xl border border-[#2563EB]/30 bg-[#2563EB]/5 p-4">
                     <div className="flex items-start gap-3">
                         <Smartphone className="mt-0.5 size-5 shrink-0 text-[#2563EB]" />
@@ -103,7 +123,7 @@ export function NotificationsPage() {
                 </section>
             )}
 
-            {state === 'granted' && (
+            {pushActive && (
                 <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
                     <Check className="size-4" />
                     {t('notifications.enabled')}

@@ -7,13 +7,40 @@ function urlBase64ToUint8Array(base64) {
     return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
+function subscriptionUsesKey(subscription, applicationServerKey) {
+    const subscribedKey = subscription?.options.applicationServerKey;
+    if (!subscribedKey) return false;
+
+    const bytes = new Uint8Array(subscribedKey);
+    return bytes.length === applicationServerKey.length &&
+        bytes.every((byte, index) => byte === applicationServerKey[index]);
+}
+
 export function pushSupported() {
     return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 }
 
 export async function registerServiceWorker() {
     if (!('serviceWorker' in navigator)) return null;
-    return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
+    return navigator.serviceWorker.ready;
+}
+
+export async function syncPushSubscription() {
+    if (!pushSupported() || Notification.permission !== 'granted') return false;
+
+    const registration = await registerServiceWorker();
+    if (!registration) return false;
+
+    const { publicKey } = await apiClient.get('/notifications/vapid-public-key');
+    if (!publicKey) return false;
+
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return false;
+    if (!subscriptionUsesKey(subscription, urlBase64ToUint8Array(publicKey))) return false;
+
+    await apiClient.post('/notifications/subscriptions', subscription.toJSON());
+    return true;
 }
 
 export async function enablePush() {
@@ -25,10 +52,6 @@ export async function enablePush() {
         };
     }
 
-    const registration =
-        (await navigator.serviceWorker.getRegistration()) ?? (await registerServiceWorker());
-    if (!registration) return { ok: false, reason: 'Service worker registration failed' };
-
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
         return { ok: false, reason: 'Notification permission was not granted' };
@@ -37,13 +60,31 @@ export async function enablePush() {
     const { publicKey } = await apiClient.get('/notifications/vapid-public-key');
     if (!publicKey) return { ok: false, reason: 'Push notifications are not configured on the server' };
 
-    const existing = await registration.pushManager.getSubscription();
-    const subscription =
-        existing ??
-        (await registration.pushManager.subscribe({
+    const registration = await registerServiceWorker();
+    if (!registration) return { ok: false, reason: 'Service worker registration failed' };
+
+    const applicationServerKey = urlBase64ToUint8Array(publicKey);
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (subscription && !subscriptionUsesKey(subscription, applicationServerKey)) {
+        await subscription.unsubscribe();
+        subscription = null;
+    }
+
+    if (!subscription) {
+        try {
+            subscription = await registration.pushManager.subscribe({
             userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(publicKey),
-        }));
+            applicationServerKey,
+            });
+        } catch (error) {
+            if (error?.name === 'AbortError' && /push service/i.test(error.message)) {
+            console.error('The browser push service rejected the subscription request.', error);
+            return { ok: false, reason: 'notifications.pushServiceUnavailable' };
+            }
+            throw error;
+        }
+    }
 
     await apiClient.post('/notifications/subscriptions', subscription.toJSON());
     return { ok: true };

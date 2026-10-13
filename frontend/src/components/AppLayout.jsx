@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../lib/auth.jsx';
 import { apiClient } from '../lib/api.js';
 import { playNotificationSound, primeNotificationSound } from '../lib/notificationSound.js';
+import { syncPushSubscription } from '../lib/push.js';
 import { QuickCreateTask } from './QuickCreateTask.jsx';
 import { LanguageSwitcher } from './LanguageSwitcher.jsx';
 
@@ -79,6 +80,13 @@ export function AppLayout() {
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user?.id) return;
+    void syncPushSubscription().catch((error) => {
+      console.error('Could not sync the browser push subscription:', error);
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
     const activate = () => primeNotificationSound();
     window.addEventListener('pointerdown', activate, { once: true });
     window.addEventListener('keydown', activate, { once: true });
@@ -114,17 +122,25 @@ export function AppLayout() {
     const fresh = recentNotifications.items.filter((item) => !previous.includes(item.id));
     sessionStorage.setItem(key, JSON.stringify(current));
     fresh.forEach((_, index) => window.setTimeout(playNotificationSound, index * 320));
-    if (!('Notification' in window)) return;
-    if (Notification.permission !== 'granted') return;
-    for (const item of fresh.slice(0, 3).reverse()) {
-      const notification = new Notification(item.title, { body: item.body, icon: '/icons/tadreeby-192.png', tag: item.id });
-      notification.onclick = () => {
-        window.focus();
-        navigate(item.url || '/notifications');
-        notification.close();
-      };
+    if (document.visibilityState !== 'visible' || !fresh.length) return;
+    if ('Notification' in window && Notification.permission === 'granted') {
+      void navigator.serviceWorker.ready
+        .then((registration) => Promise.all(
+          fresh.slice(0, 3).reverse().map((item) =>
+            registration.showNotification(item.title, {
+              body: item.body,
+              icon: '/favicon.svg',
+              badge: '/favicon.svg',
+              tag: item.id,
+              data: { url: item.url || '/notifications' },
+            }),
+          ),
+        ))
+        .catch((error) => {
+          console.error('Could not show desktop notification:', error);
+        });
     }
-  }, [navigate, recentNotifications, user?.id]);
+  }, [recentNotifications, user?.id]);
 
   const workspace =
     user?.memberships.find((m) => m.workspace.id === localStorage.getItem('tth_workspace'))?.workspace ??
