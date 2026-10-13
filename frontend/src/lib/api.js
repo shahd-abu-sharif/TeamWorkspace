@@ -1,4 +1,5 @@
-const BASE = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL ?? '/api');
+// const BASE = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL ?? '/api');
+const BASE = 'https://teamworkspace.onrender.com'
 
 let accessToken = null;
 let activeWorkspaceId = localStorage.getItem('tth_workspace');
