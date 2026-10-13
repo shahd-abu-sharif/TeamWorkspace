@@ -129,8 +129,8 @@ export function AppLayout() {
           fresh.slice(0, 3).reverse().map((item) =>
             registration.showNotification(item.title, {
               body: item.body,
-              icon: '/favicon.svg',
-              badge: '/favicon.svg',
+              icon: '/Tadreeby%20Emblem.svg',
+              badge: '/Tadreeby%20Emblem.svg',
               tag: item.id,
               data: { url: item.url || '/notifications' },
             }),
@@ -168,9 +168,7 @@ export function AppLayout() {
             onClick={() => collapsed && setCollapsed(false)}
             className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-start transition hover:bg-gray-100 dark:hover:bg-gray-800"
           >
-            <div className="grid size-5 shrink-0 place-items-center rounded bg-[#2563EB] text-[10px] font-semibold text-white">
-              {workspace?.name?.charAt(0).toUpperCase() ?? 'T'}
-            </div>
+            <img src="/Tadreeby%20Emblem.svg" alt="Tadreeby" className="h-auto w-8 shrink-0" />
             {!collapsed && <>
               <span className="truncate text-[13px] font-medium">{workspace?.name ?? 'Tadreeby'}</span>
               <ChevronDown className="size-3.5 shrink-0 text-gray-400" />

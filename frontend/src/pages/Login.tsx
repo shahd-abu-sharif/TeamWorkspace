@@ -32,9 +32,7 @@ export function LoginPage() {
         <div className="grid min-h-dvh place-items-center bg-slate-50 p-4 dark:bg-slate-950">
             <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className="mb-6 text-center">
-                    <div className="mx-auto mb-3 grid size-12 place-items-center rounded-xl bg-[#2563EB] text-xl font-bold text-white">
-                        T
-                    </div>
+                    <img src="/Tadreeby%20Emblem.svg" alt="Tadreeby" className="mx-auto mb-3 h-auto w-20" />
                     <h1 className="text-xl font-semibold">Tadreeby Team Hub</h1>
                     <p className="mt-1 text-sm text-slate-500">{t('auth.signInSubtitle')}</p>
                 </div>
