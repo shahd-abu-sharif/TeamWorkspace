@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { Field, btnPrimary, input } from '../components/QuickCreateTask';
 import { useTranslation } from 'react-i18next';
+import TadreebyLogo from '../assets/TadreebyLogo.png';
 
 export function LoginPage() {
     const { t } = useTranslation();
@@ -32,8 +33,8 @@ export function LoginPage() {
         <div className="grid min-h-dvh place-items-center bg-slate-50 p-4 dark:bg-slate-950">
             <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
                 <div className="mb-6 text-center">
-                    <img src="/Tadreeby%20Emblem.svg" alt="Tadreeby" className="mx-auto mb-3 h-auto w-20" />
-                    <h1 className="text-xl font-semibold">Tadreeby Team Hub</h1>
+                    {/* <img src="/media/shahd/Local Disk/BACKEND DEVELOPMENT/TeamWorkspace/frontend/src/assets/TadreebyLogo.png" alt="Tadreeby" className="mx-auto mb-3 h-auto w-20" /> */}
+                    <h1 className="text-xl font-semibold">Tadreeby Team Workspace</h1>
                     <p className="mt-1 text-sm text-slate-500">{t('auth.signInSubtitle')}</p>
                 </div>
 
@@ -45,10 +46,10 @@ export function LoginPage() {
 
                 <form onSubmit={submit} className="space-y-4">
                     <Field label={t('auth.email')}>
-                        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className={input} autoComplete="email" />
+                        <input type="email" placeholder='example@domain.com' required value={email} onChange={(e) => setEmail(e.target.value)} className={input} autoComplete="email" />
                     </Field>
-                    <Field label={t('auth.password')}>
-                        <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className={input} autoComplete="current-password" />
+                    <Field label={t('auth.password')} hint={t('auth.passwordHint')}>
+                        <input type="password" placeholder='••••••••••' required value={password} onChange={(e) => setPassword(e.target.value)} className={input} autoComplete="current-password" />
                     </Field>
                     <button type="submit" disabled={busy} className={`${btnPrimary} w-full`}>
                         {busy ? t('auth.signingIn') : t('auth.signIn')}

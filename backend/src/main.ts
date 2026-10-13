@@ -12,9 +12,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
   app.enableCors({
-    origin: (process.env.WEB_ORIGIN ?? 'http://localhost:5173')
-      .split(',')
-      .map((s) => s.trim()),
+    // origin: (process.env.WEB_ORIGIN ?? 'http://localhost:5173')
+    //   .split(',')
+    //   .map((s) => s.trim()),
+    origin: [
+      'http://localhost:5173', 
+      'https://shahd-abu-sharif.github.io', 
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-workspace-id'],

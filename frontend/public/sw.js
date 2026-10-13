@@ -7,8 +7,8 @@ self.addEventListener('push', (event) => {
 
     await self.registration.showNotification(payload.title || 'Tadreeby Team Hub', {
       body: payload.body || '',
-      icon: '/Tadreeby%20Emblem.svg',
-      badge: '/Tadreeby%20Emblem.svg',
+      icon: '/TadreebyLogo.svg',
+      badge: '/TadreebyLogo.svg',
       tag: payload.tag || payload.id,
       data: { url: payload.url || '/notifications' },
     });
