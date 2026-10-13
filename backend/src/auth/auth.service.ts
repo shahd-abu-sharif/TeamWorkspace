@@ -73,7 +73,9 @@ export class AuthService {
 
         // The raw token is the only copy that exists — it is returned once so the
         // leader can share the link. Replace this with a transactional email in prod.
-        const acceptUrl = `${process.env.WEB_ORIGIN}/accept-invite?token=${rawToken}`;
+        // const acceptUrl = `${process.env.WEB_ORIGIN}/accept-invite?token=${rawToken}`;
+        const appUrl = process.env.WEB_APP_URL ?? process.env.WEB_ORIGIN ?? 'http://localhost:5173';
+        const acceptUrl = `${appUrl}/accept-invite?token=${rawToken}`;
 
         return {
             id: invitation.id,
