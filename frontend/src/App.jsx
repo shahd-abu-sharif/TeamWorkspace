@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth.jsx';
+import { SocketProvider } from './lib/socket.jsx';
 import { ThemeProvider } from './lib/theme.jsx';
 import { AppLayout } from './components/AppLayout.jsx';
 import { LoginPage } from './pages/Login.jsx';
@@ -71,13 +72,15 @@ export default function App() {
       <ThemeProvider>
         <BrowserRouter>
           <AuthProvider>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/accept-invite" element={<AcceptInvitePage />} />
-              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-              <Route path="/reset-password" element={<ResetPasswordPage />} />
-              <Route path="/*" element={<ProtectedRoutes />} />
-            </Routes>
+            <SocketProvider>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/accept-invite" element={<AcceptInvitePage />} />
+                <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                <Route path="/reset-password" element={<ResetPasswordPage />} />
+                <Route path="/*" element={<ProtectedRoutes />} />
+              </Routes>
+            </SocketProvider>
           </AuthProvider>
         </BrowserRouter>
       </ThemeProvider>

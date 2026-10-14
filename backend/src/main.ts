@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { PrismaService } from './prisma/prisma.service';
+import { LastSeenInterceptor } from './common/interceptors/last-seen.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -27,10 +28,11 @@ async function bootstrap() {
     maxAge: 86400,
   });
 
-
+  // في main.ts
   app.setGlobalPrefix('api');
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cookieParser());
+  app.useGlobalInterceptors(new LastSeenInterceptor(app.get(PrismaService)));
 
   app.useGlobalPipes(
     new ValidationPipe({

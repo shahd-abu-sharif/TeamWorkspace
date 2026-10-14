@@ -453,6 +453,8 @@ model ChatMessage {
   senderId       String
   recipientId    String?
   mentionUserIds String[] @default([])
+  taskMentionIds String[] @default([])
+  replyToId      String?
   body           String
   createdAt      DateTime @default(now())
 
@@ -460,6 +462,9 @@ model ChatMessage {
   sender    User                 @relation(fields: [senderId], references: [id], onDelete: Cascade)
   recipient User?                @relation("ChatRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
   receipts  ChatMessageReceipt[]
+
+  replyTo ChatMessage?  @relation("Replies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies ChatMessage[] @relation("Replies")
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, recipientId, createdAt])

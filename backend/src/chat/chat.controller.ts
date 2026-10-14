@@ -16,4 +16,17 @@ export class ChatController {
   send(@CurrentMembership() membership: Membership, @Body() body: unknown) {
     return this.chat.send(membership, body);
   }
+
+  @Get('conversations')
+  conversations(@CurrentMembership() membership: Membership) {
+    return this.chat.listConversations(membership);
+  }
+
+  @Get('tasks/search')
+  searchTasks(
+    @CurrentMembership() membership: Membership,
+    @Query('q') q?: string,
+  ) {
+    return this.chat.searchTasks(membership, q ?? '');
+  }
 }
