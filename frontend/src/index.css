@@ -3,6 +3,15 @@
 /* Keep dark: utilities opt-in only; the workspace uses a light palette. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+.markdown-content p {
+  margin-block: 0 1rem;
+  line-height: 1.75;
+}
+
+.markdown-content p:last-child {
+  margin-block-end: 0;
+}
+
 @theme {
   --color-brand-50: #EFF6FF;
   --color-brand-100: #DBEAFE;
