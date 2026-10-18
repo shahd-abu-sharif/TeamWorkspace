@@ -1,4 +1,3 @@
-// apps/api/src/tasks/tasks.service.ts
 import {
     BadRequestException,
     ForbiddenException,
@@ -46,7 +45,6 @@ export class TasksService {
             ...(query.includeArchived ? {} : { isArchived: false }),
         };
 
-        // Members only ever see tasks they are involved in.
         if (m.role !== 'LEADER') {
             where.OR = [
                 { assignees: { some: { userId: m.userId } } },
@@ -123,19 +121,47 @@ export class TasksService {
         return { items, total, page: query.page, pageSize: query.pageSize };
     }
 
+    // async board(m: Membership) {
+    //     const tasks = await this.prisma.task.findMany({
+    //         where: {
+    //             workspaceId: m.workspaceId,
+    //             isArchived: false,
+    //             ...(m.role === 'LEADER'
+    //                 ? {}
+    //                 : {
+    //                     OR: [
+    //                         { assignees: { some: { userId: m.userId } } },
+    //                         { collaborators: { some: { userId: m.userId } } },
+    //                     ],
+    //                 }),
+    //         },
+    //         orderBy: [{ priority: 'asc' }, { dueDate: 'asc' }],
+    //         include: {
+    //             assignees: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } },
+    //             workstream: { select: { id: true, name: true, color: true } },
+    //             tags: { include: { tag: true } },
+    //         },
+    //     });
+
+    //     return STATUS_ORDER.reduce<Record<string, unknown[]>>((acc, status) => {
+    //         acc[status] = tasks.filter((t) => t.status === status);
+    //         return acc;
+    //     }, {});
+    // }
+
+
+
     async board(m: Membership) {
         const tasks = await this.prisma.task.findMany({
             where: {
                 workspaceId: m.workspaceId,
                 isArchived: false,
-                ...(m.role === 'LEADER'
-                    ? {}
-                    : {
-                        OR: [
-                            { assignees: { some: { userId: m.userId } } },
-                            { collaborators: { some: { userId: m.userId } } },
-                        ],
-                    }),
+
+                OR: [
+                    { assignees: { some: { userId: m.userId } } },
+                    { collaborators: { some: { userId: m.userId } } },
+                ],
+
             },
             orderBy: [{ priority: 'asc' }, { dueDate: 'asc' }],
             include: {
@@ -176,6 +202,71 @@ export class TasksService {
         return { ...task, comments, activities, timeEntries, trackedSeconds };
     }
 
+    // ---------------------------------------------------------------- Timer Controls
+
+    async startTimer(m: Membership, id: string) {
+        const task = await this.access.assertCanWrite(id, m);
+        if (!this.isInvolved(task, m.userId) && m.role !== 'LEADER') {
+            throw new ForbiddenException('Only assignees can track time on this task');
+        }
+
+        const now = new Date();
+
+        await this.prisma.$transaction(async (tx) => {
+            // Close any existing open entries for this user
+            await tx.taskTimeEntry.updateMany({
+                where: { taskId: id, userId: m.userId, endedAt: null },
+                data: { endedAt: now },
+            });
+
+            // Create new open entry
+            await tx.taskTimeEntry.create({
+                data: { taskId: id, userId: m.userId, startedAt: now },
+            });
+
+            // Auto move to IN_PROGRESS if it's TODO or BACKLOG
+            const taskData: Prisma.TaskUpdateInput = {};
+            if (task.status === 'TODO' || task.status === 'BACKLOG') {
+                taskData.status = 'IN_PROGRESS';
+                taskData.startedAt = task.startedAt ?? now;
+            }
+            if (Object.keys(taskData).length) {
+                await tx.task.update({ where: { id }, data: taskData });
+            }
+        });
+
+        return this.findOne(m, id);
+    }
+
+    async pauseTimer(m: Membership, id: string) {
+        const task = await this.access.assertCanWrite(id, m);
+        if (!this.isInvolved(task, m.userId) && m.role !== 'LEADER') {
+            throw new ForbiddenException('Only assignees can track time on this task');
+        }
+
+        const now = new Date();
+
+        await this.prisma.$transaction(async (tx) => {
+            await tx.taskTimeEntry.updateMany({
+                where: { taskId: id, userId: m.userId, endedAt: null },
+                data: { endedAt: now },
+            });
+
+            // Recalculate actual hours
+            const entries = await tx.taskTimeEntry.findMany({ where: { taskId: id } });
+            const totalSeconds = entries.reduce((sum, entry) => {
+                const end = entry.endedAt ? entry.endedAt.getTime() : now.getTime();
+                return sum + Math.max(0, (end - entry.startedAt.getTime()) / 1000);
+            }, 0);
+            await tx.task.update({
+                where: { id },
+                data: { actualHrs: Number((totalSeconds / 3600).toFixed(2)) },
+            });
+        });
+
+        return this.findOne(m, id);
+    }
+
     // ---------------------------------------------------------------- writes
 
     async create(m: Membership, dto: CreateTaskDto) {
@@ -201,6 +292,7 @@ export class TasksService {
                     estimatedHrs: dto.estimatedHrs ?? null,
                     progress: dto.status === 'DONE' ? 100 : dto.progress,
                     completedAt: dto.status === 'DONE' ? new Date() : null,
+                    links: dto.links, // ← الروابط
                     assignees: { create: dto.assigneeIds.map((userId) => ({ userId })) },
                     collaborators: { create: dto.collaboratorIds.map((userId) => ({ userId })) },
                     tags: { create: await this.resolveTags(tx, m.workspaceId, dto.tagNames) },
@@ -255,6 +347,7 @@ export class TasksService {
                 dueDate: dto.dueDate,
                 estimatedHrs: dto.estimatedHrs,
                 progress: dto.progress,
+                links: dto.links, // ← تحديث الروابط
             };
             if (nextStatus === 'IN_PROGRESS' && before.status !== 'IN_PROGRESS' && !before.startedAt) {
                 data.startedAt = new Date();
@@ -360,7 +453,6 @@ export class TasksService {
         return this.findOne(m, id);
     }
 
-    /** Team-member self-service update: status, progress, hours, description only. */
     async memberUpdate(m: Membership, id: string, raw: unknown) {
         const dto = MemberUpdateSchema.parse(raw);
         const before = await this.access.assertCanWrite(id, m);
@@ -395,49 +487,16 @@ export class TasksService {
         }
         if (events.length) await this.prisma.taskActivity.createMany({ data: events });
 
-        const detailsChanged =
-            (dto.progress !== undefined && dto.progress !== before.progress) ||
-            (dto.actualHrs !== undefined && dto.actualHrs !== before.actualHrs) ||
-            (dto.description !== undefined && dto.description !== before.description);
-        if (detailsChanged) {
-            const notification = {
-                type: 'TASK_UPDATED' as const,
-                title: 'Task details updated',
-                body: `“${before.title}” progress or task details changed`,
-                taskId: id,
-                dedupeKey: `member-update:${id}:${Date.now()}`,
-                excludeUserId: m.userId,
-            };
-            await this.notifications.notifyTaskAssignees(m.workspaceId, id, notification);
-            await this.notifications.notifyLeaders(m.workspaceId, notification);
-        }
-
-        if (dto.status && dto.status !== before.status) {
-            const notification = {
-                type: 'TASK_UPDATED' as const,
-                title: 'Task status changed',
-                body: `“${before.title}” moved from ${before.status.replaceAll('_', ' ')} to ${dto.status.replaceAll('_', ' ')}`,
-                taskId: id,
-                dedupeKey: `status:${id}:${dto.status}:${Date.now()}`,
-                excludeUserId: m.userId,
-            };
-            await this.notifications.notifyTaskAssignees(m.workspaceId, id, notification);
-            if (dto.status !== 'IN_REVIEW') {
-                await this.notifications.notifyLeaders(m.workspaceId, notification);
-            }
-        }
-
-        if (dto.status === 'IN_REVIEW') {
-            await this.notifications.notifyLeaders(m.workspaceId, {
-                type: 'REVIEW_REQUESTED',
-                title: 'Task submitted for review',
-                body: `${before.title} is ready for review`,
-                taskId: id,
-                dedupeKey: `review:${id}:${Date.now()}`,
+        if (dto.progress !== undefined && dto.progress !== before.progress) {
+            await this.prisma.taskActivity.create({
+                data: {
+                    workspaceId: m.workspaceId,
+                    taskId: id,
+                    actorId: m.userId,
+                    type: 'UPDATED',
+                    summary: `updated progress to ${dto.progress}%`,
+                }
             });
-        }
-        if (dto.status === 'DONE') {
-            await this.notifications.notifyDependents(m.workspaceId, id);
         }
 
         return updated;
@@ -562,6 +621,7 @@ export class TasksService {
                     startDate: source.startDate,
                     dueDate: source.dueDate,
                     estimatedHrs: source.estimatedHrs,
+                    links: source.links, // copy links
                     assignees: { create: source.assignees.map((a) => ({ userId: a.userId })) },
                     collaborators: { create: source.collaborators.map((c) => ({ userId: c.userId })) },
                     tags: { create: source.tags.map((t) => ({ tagId: t.tagId })) },
@@ -843,7 +903,6 @@ export class TasksService {
         }
     }
 
-    /** Adds dependencies while guaranteeing the graph stays acyclic. */
     private async addDependenciesTx(
         tx: Prisma.TransactionClient,
         taskId: string,
@@ -887,7 +946,7 @@ export class TasksService {
                 metadata: { dependsOnId },
             })),
             skipDuplicates: true,
-        }).catch(() => undefined); // activity for dependencies is best-effort
+        }).catch(() => undefined);
     }
 
     private createsCycle(graph: Map<string, string[]>, start: string): boolean {

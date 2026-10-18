@@ -48,6 +48,7 @@ export function QuickCreateTask({ onClose }) {
                 dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : null,
                 estimatedHrs: values.estimatedHrs ?? null,
                 tagNames: values.tagNames?.split(',').map((t) => t.trim()).filter(Boolean) ?? [],
+                links: values.links ? values.links.split(',').map((l) => l.trim()).filter(Boolean) : [], // ⬅️ هنا
             }),
         onSuccess: () => {
             void qc.invalidateQueries({ queryKey: ['tasks'] });
@@ -137,6 +138,14 @@ export function QuickCreateTask({ onClose }) {
                             <input type="checkbox" checked={createAnother} onChange={(e) => setCreateAnother(e.target.checked)} />
                             {t('tasks.createAnother')}
                         </label>
+                     
+                            <Field label="Relevant Links" hint="Comma separated (e.g. https://github.com/... , https://figma.com/...)">
+                                <input
+                                    {...form.register('links')}
+                                    className={input}
+                                    placeholder="https://..., https://..."
+                                />
+                            </Field>
                         <button type="button" onClick={onClose} className={btnSecondary}>{t('tasks.cancel')}</button>
                         <button type="submit" disabled={mutation.isPending} className={btnPrimary}>
                             {mutation.isPending ? t('tasks.saving') : t('tasks.create')}

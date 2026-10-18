@@ -96,4 +96,14 @@ export class TasksController {
   review(@CurrentMembership() membership: Membership, @Param('id') id: string, @Body() body: { decision: 'approve' | 'request_changes'; note?: string }) {
     return this.tasksService.review(membership, id, body.decision, body.note);
   }
+
+  @Post(':id/timer/start')
+  startTimer(@CurrentMembership() membership: Membership, @Param('id') id: string) {
+    return this.tasksService.startTimer(membership, id);
+  }
+
+  @Post(':id/timer/pause')
+  pauseTimer(@CurrentMembership() membership: Membership, @Param('id') id: string) {
+    return this.tasksService.pauseTimer(membership, id);
+  }
 }

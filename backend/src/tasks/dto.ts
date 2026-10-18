@@ -34,6 +34,7 @@ const taskFieldsSchema = z.object({
         dependencyIds: z.array(z.string().cuid()).default([]),
         tagNames: z.array(z.string().min(1).max(40)).default([]),
         progress: z.number().int().min(0).max(100).default(0),
+        links: z.array(z.string().url()).default([]),
     });
 
 export const CreateTaskSchema = taskFieldsSchema.refine(

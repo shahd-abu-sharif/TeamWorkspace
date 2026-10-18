@@ -230,6 +230,7 @@ model Task {
   description  String?
   workstreamId String?
   createdById  String
+  links        String[]   @default([])
   priority     Priority   @default(MEDIUM)
   status       TaskStatus @default(BACKLOG)
   startedAt    DateTime?
