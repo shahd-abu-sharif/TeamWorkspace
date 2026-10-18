@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '../lib/api.js';
+import { MarkdownEditor } from './MarkdownEditor';
 
 const createSchema = (t) => z.object({
     title: z.string().min(2, t('tasks.titleMinLength')).max(200),
@@ -18,6 +19,7 @@ const createSchema = (t) => z.object({
     dueDate: z.string().nullable().optional(),
     estimatedHrs: z.coerce.number().min(0).max(9999).nullable().optional(),
     tagNames: z.string().optional(),
+    links: z.string().optional(),
 });
 
 export function QuickCreateTask({ onClose }) {
@@ -48,13 +50,13 @@ export function QuickCreateTask({ onClose }) {
                 dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : null,
                 estimatedHrs: values.estimatedHrs ?? null,
                 tagNames: values.tagNames?.split(',').map((t) => t.trim()).filter(Boolean) ?? [],
-                links: values.links ? values.links.split(',').map((l) => l.trim()).filter(Boolean) : [], // ⬅️ هنا
+                links: values.links ? values.links.split(',').map((l) => l.trim()).filter(Boolean) : [],
             }),
         onSuccess: () => {
             void qc.invalidateQueries({ queryKey: ['tasks'] });
             void qc.invalidateQueries({ queryKey: ['board'] });
             void qc.invalidateQueries({ queryKey: ['dashboard'] });
-            if (createAnother) form.reset({ ...form.getValues(), title: '', description: '' });
+            if (createAnother) form.reset({ ...form.getValues(), title: '', description: '', links: '' });
             else onClose();
         },
     });
@@ -81,7 +83,10 @@ export function QuickCreateTask({ onClose }) {
                     </Field>
 
                     <Field label={t('tasks.description')}>
-                        <textarea {...form.register('description')} rows={3} className={input} placeholder={t('tasks.descriptionPlaceholder')} />
+                        <MarkdownEditor
+                            value={form.watch('description')}
+                            onChange={(val) => form.setValue('description', val)}
+                        />
                     </Field>
 
                     <div className="grid gap-4 sm:grid-cols-2">
@@ -133,19 +138,16 @@ export function QuickCreateTask({ onClose }) {
                         </Field>
                     </div>
 
+                    <Field label="Relevant Links" hint="Comma separated (e.g. https://github.com/..., https://figma.com/...)">
+                        <input {...form.register('links')} className={input} placeholder="https://..., https://..." />
+                    </Field>
+
                     <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
                         <label className="me-auto flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
                             <input type="checkbox" checked={createAnother} onChange={(e) => setCreateAnother(e.target.checked)} />
                             {t('tasks.createAnother')}
                         </label>
-                     
-                            <Field label="Relevant Links" hint="Comma separated (e.g. https://github.com/... , https://figma.com/...)">
-                                <input
-                                    {...form.register('links')}
-                                    className={input}
-                                    placeholder="https://..., https://..."
-                                />
-                            </Field>
+
                         <button type="button" onClick={onClose} className={btnSecondary}>{t('tasks.cancel')}</button>
                         <button type="submit" disabled={mutation.isPending} className={btnPrimary}>
                             {mutation.isPending ? t('tasks.saving') : t('tasks.create')}
@@ -157,12 +159,19 @@ export function QuickCreateTask({ onClose }) {
     );
 }
 
+// ==========================================
+// EXPORTS (Field, input, buttons)
+// ==========================================
+
 export const input =
     'w-full rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[13px] outline-none transition placeholder:text-gray-400 focus:border-[#2563EB] focus:ring-2 focus:ring-[#2563EB]/15 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100';
+
 export const btnPrimary =
     'rounded-md bg-[#2563EB] px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-[#1D4ED8] disabled:opacity-50';
+
 export const btnSecondary =
     'rounded-md border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium transition hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700';
+
 export const btnDanger =
     'rounded-md bg-red-500 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-red-600 disabled:opacity-50';
 

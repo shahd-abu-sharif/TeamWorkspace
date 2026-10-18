@@ -6,6 +6,8 @@ import { useAuth } from '../lib/auth';
 import { btnPrimary, btnSecondary, btnDanger, input } from '../components/QuickCreateTask';
 import { ErrorState, PriorityDot, StatusBadge } from './Dashboard';
 import { Download, Paperclip, Upload, Play, Pause, Clock, Link as LinkIcon, Plus, AlertTriangle } from 'lucide-react';
+import { MarkdownEditor } from '../components/MarkdownEditor';
+import { MarkdownRenderer } from '../components/MarkdownRenderer';
 
 export function TaskDetailPage() {
     const { id = '' } = useParams();
@@ -15,15 +17,17 @@ export function TaskDetailPage() {
     const [reviewNote, setReviewNote] = useState('');
     const [attachmentError, setAttachmentError] = useState('');
     const [newLink, setNewLink] = useState('');
-
-    // لتخزين الوقت الحي (الوقت الحالي الذي يمر)
     const [liveSeconds, setLiveSeconds] = useState(0);
+
+    // حالة تعديل الوصف
+    const [isEditingDesc, setIsEditingDesc] = useState(false);
+    const [descValue, setDescValue] = useState('');
 
     const { data: task, isLoading, error } = useQuery({
         queryKey: ['task', id],
         queryFn: () => apiClient.get<any>(`/tasks/${id}`),
         enabled: Boolean(id),
-        refetchInterval: 10_000, 
+        refetchInterval: 10_000,
     });
 
     const invalidate = () => {
@@ -39,7 +43,6 @@ export function TaskDetailPage() {
     });
 
     // ================= Timer Logic =================
-
     const closedSeconds = task?.timeEntries
         ?.filter((e: any) => e.user.id === user?.id && e.endedAt)
         .reduce((sum: number, entry: any) => {
@@ -63,13 +66,19 @@ export function TaskDetailPage() {
         return () => clearInterval(interval);
     }, [openEntry]);
 
-    const totalSeconds = closedSeconds + liveSeconds;
+    // تحديث الوصف عند تحميل المهمة لأول مرة
+    useEffect(() => {
+        if (task?.description && !isEditingDesc) {
+            setDescValue(task.description);
+        }
+    }, [task?.description, isEditingDesc]);
 
+    const totalSeconds = closedSeconds + liveSeconds;
     const timerMutation = useMutation({
         mutationFn: (action: 'pause' | 'resume') =>
             action === 'pause'
                 ? apiClient.post(`/tasks/${id}/timer/pause`)
-                : apiClient.post(`/tasks/${id}/timer/start`), 
+                : apiClient.post(`/tasks/${id}/timer/start`),
         onSuccess: invalidate,
     });
 
@@ -83,14 +92,13 @@ export function TaskDetailPage() {
     const currentLoggedHrs = (task?.actualHrs || 0) + (liveSeconds / 3600);
     const isOverEstimate = task?.estimatedHrs && currentLoggedHrs > task.estimatedHrs;
 
-    // ================= Review Actions =================
+    // ================= Review & Links =================
     const review = useMutation({
         mutationFn: (decision: 'approve' | 'request_changes') =>
             apiClient.post(`/tasks/${id}/review`, { decision, note: reviewNote || undefined }),
         onSuccess: () => { setReviewNote(''); invalidate(); },
     });
 
-    // ================= Links & Attachments =================
     const addLink = () => {
         if (!newLink.trim()) return;
         patch.mutate({ links: [...(task.links || []), newLink.trim()] });
@@ -158,10 +166,26 @@ export function TaskDetailPage() {
                 <section className="space-y-6 lg:col-span-2">
                     {/* Description */}
                     <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-                        <h2 className="mb-3 font-semibold">Description</h2>
-                        <p className="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-400">
-                            {task.description || 'No description provided.'}
-                        </p>
+                        <div className="mb-3 flex items-center justify-between">
+                            <h2 className="font-semibold">Description</h2>
+                            {!isEditingDesc && canTrackTime && (
+                                <button onClick={() => { setDescValue(task.description || ''); setIsEditingDesc(true); }} className="text-sm text-[#2563EB] hover:underline">
+                                    Edit
+                                </button>
+                            )}
+                        </div>
+
+                        {isEditingDesc ? (
+                            <div className="space-y-3">
+                                <MarkdownEditor value={descValue} onChange={setDescValue} />
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => setIsEditingDesc(false)} className={btnSecondary}>Cancel</button>
+                                    <button onClick={() => patch.mutate({ description: descValue }, { onSuccess: () => setIsEditingDesc(false) })} className={btnPrimary} disabled={patch.isPending}>Save</button>
+                                </div>
+                            </div>
+                        ) : (
+                            <MarkdownRenderer content={task.description} />
+                        )}
                     </div>
 
                     {/* Timer & Progress */}
@@ -224,7 +248,7 @@ export function TaskDetailPage() {
                         </div>
                     )}
 
-                    {/* Review Actions (For Leader) */}
+                    {/* Review Actions */}
                     {canEditAll && task.status === 'IN_REVIEW' && (
                         <div className="rounded-xl border border-[#FCA840]/40 bg-[#FCA840]/5 p-5">
                             <h2 className="mb-3 font-semibold">This task is awaiting your review</h2>

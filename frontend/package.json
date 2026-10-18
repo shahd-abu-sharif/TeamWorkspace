@@ -22,7 +22,9 @@
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.89.0",
     "react-i18next": "^17.0.16",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.4",
+    "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.4",
     "tailwindcss": "^4.3.3",
     "zod": "^3.25.76"
