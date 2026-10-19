@@ -116,6 +116,7 @@ model User {
   chatMessages         ChatMessage[]
   receivedChatMessages ChatMessage[]           @relation("ChatRecipient")
   chatReceipts         ChatMessageReceipt[]
+  completedSubtasks    Subtask[]               @relation("SubtaskDoneBy")
 
   @@index([email])
 }
@@ -257,6 +258,7 @@ model Task {
   activities    TaskActivity[]
   notifications Notification[]
   timeEntries   TaskTimeEntry[]
+  subtasks      Subtask[]
 
   @@unique([workspaceId, reference])
   @@index([workspaceId, status])
@@ -264,6 +266,23 @@ model Task {
   @@index([workspaceId, priority])
   @@index([workspaceId, isArchived])
   @@index([workspaceId, workstreamId])
+}
+
+model Subtask {
+  id        String    @id @default(cuid())
+  taskId    String
+  label     String
+  done      Boolean   @default(false)
+  doneById  String?
+  doneAt    DateTime?
+  position  Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  doneBy User? @relation("SubtaskDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
 }
 
 model TaskAssignee {

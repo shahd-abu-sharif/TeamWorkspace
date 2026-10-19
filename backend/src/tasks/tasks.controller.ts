@@ -91,10 +91,49 @@ export class TasksController {
     return this.tasksService.addComment(membership, id, body);
   }
 
-  @Post(':id/review')
+
+  // ── subtasks ────────────────────────────────────────────────────────────
+  @Post(':id/subtasks')
   @Roles('LEADER')
-  review(@CurrentMembership() membership: Membership, @Param('id') id: string, @Body() body: { decision: 'approve' | 'request_changes'; note?: string }) {
-    return this.tasksService.review(membership, id, body.decision, body.note);
+  createSubtask(@CurrentMembership() m: Membership, @Param('id') id: string, @Body() body: unknown) {
+    return this.tasksService.createSubtask(m, id, body);
+  }
+
+  @Patch(':id/subtasks/reorder')
+  @Roles('LEADER')
+  reorderSubtasks(@CurrentMembership() m: Membership, @Param('id') id: string, @Body() body: unknown) {
+    return this.tasksService.reorderSubtasks(m, id, body);
+  }
+
+  @Patch(':id/subtasks/:subtaskId')
+  @Roles('LEADER')
+  updateSubtask(
+    @CurrentMembership() m: Membership,
+    @Param('id') id: string,
+    @Param('subtaskId') subtaskId: string,
+    @Body() body: unknown,
+  ) {
+    return this.tasksService.updateSubtask(m, id, subtaskId, body);
+  }
+
+  @Delete(':id/subtasks/:subtaskId')
+  @Roles('LEADER')
+  deleteSubtask(
+    @CurrentMembership() m: Membership,
+    @Param('id') id: string,
+    @Param('subtaskId') subtaskId: string,
+  ) {
+    return this.tasksService.deleteSubtask(m, id, subtaskId);
+  }
+
+  @Post(':id/subtasks/:subtaskId/toggle')
+  toggleSubtask(
+    @CurrentMembership() m: Membership,
+    @Param('id') id: string,
+    @Param('subtaskId') subtaskId: string,
+    @Body() body: unknown,
+  ) {
+    return this.tasksService.toggleSubtask(m, id, subtaskId, body);
   }
 
   @Post(':id/timer/start')
@@ -106,4 +145,11 @@ export class TasksController {
   pauseTimer(@CurrentMembership() membership: Membership, @Param('id') id: string) {
     return this.tasksService.pauseTimer(membership, id);
   }
+
+  @Post(':id/review')
+  @Roles('LEADER')
+  review(@CurrentMembership() membership: Membership, @Param('id') id: string, @Body() body: { decision: 'approve' | 'request_changes'; note?: string }) {
+    return this.tasksService.review(membership, id, body.decision, body.note);
+  }
+
 }
