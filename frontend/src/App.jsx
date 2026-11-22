@@ -32,12 +32,33 @@ const queryClient = new QueryClient({
 });
 
 function ProtectedRoutes() {
-  const { user, loading, role } = useAuth();
+  const { user, loading, role, sessionError, retry } = useAuth();
 
   if (loading) {
     return (
       <div className="grid min-h-dvh place-items-center">
         <div className="size-8 animate-spin rounded-full border-2 border-slate-200 border-t-[#2563EB]" />
+      </div>
+    );
+  }
+
+  // The API was unreachable (cold start, offline). Keep the user here instead of
+  // dropping them on the login screen as if their session had ended.
+  if (!user && sessionError) {
+    return (
+      <div className="grid min-h-dvh place-items-center px-6">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <p className="text-sm text-slate-600">
+            Could not reach the server. Your session is still saved.
+          </p>
+          <button
+            type="button"
+            onClick={() => void retry()}
+            className="rounded-md bg-[#2563EB] px-3 py-1.5 text-sm text-white"
+          >
+            Try again
+          </button>
+        </div>
       </div>
     );
   }
