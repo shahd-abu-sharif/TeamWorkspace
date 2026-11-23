@@ -416,5 +416,28 @@
             "selectedCount": "{{count}} selected"
         },
         "you": "you"
+    },
+    "discussions": {
+        "title": "Discussion",
+        "new": "New post",
+        "publish": "Publish",
+        "postTitle": "Title",
+        "postTitlePlaceholder": "e.g. Which design system do we adopt?",
+        "postBody": "Write-up",
+        "markdownHint": "Markdown supported",
+        "filter": "Filter",
+        "all": "All",
+        "open": "Open",
+        "resolved": "Resolved",
+        "empty": "No posts yet — start the first discussion for this team.",
+        "replies_one": "{{count}} reply",
+        "replies_other": "{{count}} replies",
+        "noReplies": "No replies yet.",
+        "yourReply": "Your reply",
+        "reply": "Reply",
+        "markResolved": "Mark resolved",
+        "reopen": "Reopen",
+        "deleteConfirm": "Delete this post and all its replies?",
+        "notFound": "Discussion not found"
     }
 }

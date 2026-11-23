@@ -52,6 +52,11 @@ enum TeamMemberRole {
   MEMBER
 }
 
+enum DiscussionStatus {
+  OPEN
+  RESOLVED
+}
+
 enum ImportStatus {
   DRAFT
   PROCESSING
@@ -134,6 +139,8 @@ model User {
   completedSubtasks    Subtask[]               @relation("SubtaskDoneBy")
   teamMemberships      TeamMember[]
   createdEpics         Epic[]                  @relation("EpicCreator")
+  discussions          TeamDiscussion[]        @relation("DiscussionAuthor")
+  discussionReplies    TeamDiscussionReply[]   @relation("DiscussionReplyAuthor")
 
   @@index([email])
 }
@@ -161,18 +168,19 @@ model Workspace {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
-  members      WorkspaceMember[]
-  invitations  Invitation[]
-  tasks        Task[]
-  workstreams  Workstream[]
-  tags         Tag[]
-  milestones   Milestone[]
-  importJobs   ImportJob[]
-  activities   TaskActivity[]
-  chatMessages ChatMessage[]
-  teams        Team[]
-  epics        Epic[]
+  owner           User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members         WorkspaceMember[]
+  invitations     Invitation[]
+  tasks           Task[]
+  workstreams     Workstream[]
+  tags            Tag[]
+  milestones      Milestone[]
+  importJobs      ImportJob[]
+  activities      TaskActivity[]
+  chatMessages    ChatMessage[]
+  teams           Team[]
+  epics           Epic[]
+  teamDiscussions TeamDiscussion[]
 }
 
 model WorkspaceMember {
@@ -253,9 +261,10 @@ model Team {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  members   TeamMember[]
-  epics     EpicTeam[]
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members         TeamMember[]
+  epics           EpicTeam[]
+  teamDiscussions TeamDiscussion[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId, type])
@@ -298,6 +307,41 @@ model Epic {
 
   @@unique([workspaceId, reference])
   @@index([workspaceId, status])
+}
+
+/// A threaded discussion board per team — for decisions, not live chat.
+model TeamDiscussion {
+  id          String           @id @default(cuid())
+  workspaceId String
+  teamId      String
+  authorId    String
+  title       String
+  body        String
+  status      DiscussionStatus @default(OPEN)
+  lastReplyAt DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team      Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  author    User                  @relation("DiscussionAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  replies   TeamDiscussionReply[]
+
+  @@index([teamId, createdAt])
+  @@index([workspaceId, status])
+}
+
+model TeamDiscussionReply {
+  id           String   @id @default(cuid())
+  discussionId String
+  authorId     String
+  body         String
+  createdAt    DateTime @default(now())
+
+  discussion TeamDiscussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  author     User           @relation("DiscussionReplyAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([discussionId, createdAt])
 }
 
 /// An epic can be owned by several teams; its tasks may then be assigned to

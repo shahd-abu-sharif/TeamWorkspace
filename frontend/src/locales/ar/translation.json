@@ -429,5 +429,28 @@
             "selectedCount": "{{count}} مختار"
         },
         "you": "أنت"
+    },
+    "discussions": {
+        "title": "النقاشات",
+        "new": "منشور جديد",
+        "publish": "نشر",
+        "postTitle": "العنوان",
+        "postTitlePlaceholder": "مثال: أي نظام تصميم نعتمده؟",
+        "postBody": "المحتوى",
+        "markdownHint": "يدعم Markdown",
+        "filter": "تصفية",
+        "all": "الكل",
+        "open": "مفتوح",
+        "resolved": "تم الحل",
+        "empty": "لا توجد منشورات بعد — ابدأ أول نقاش لهذا الفريق.",
+        "replies_one": "رد واحد",
+        "replies_other": "{{count}} ردود",
+        "noReplies": "لا توجد ردود بعد.",
+        "yourReply": "ردك",
+        "reply": "رد",
+        "markResolved": "تحديد كمحلول",
+        "reopen": "إعادة الفتح",
+        "deleteConfirm": "حذف هذا المنشور وكل ردوده؟",
+        "notFound": "النقاش غير موجود"
     }
 }
