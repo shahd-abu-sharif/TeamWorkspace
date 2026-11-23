@@ -17,8 +17,10 @@ export const CreateEpicSchema = z.object({
     priority: z.enum(PRIORITIES).optional(),
     startDate: dateish,
     dueDate: dateish,
-    // Only workspace admins may set or change this (enforced in the controller).
+    // Only workspace admins may set or change these (enforced in the controller).
+    // `teamId` is kept for older clients; `teamIds` is the current shape.
     teamId: z.string().cuid().nullable().optional(),
+    teamIds: z.array(z.string().cuid()).max(10).optional(),
 });
 
 export const UpdateEpicSchema = CreateEpicSchema.partial();

@@ -50,30 +50,24 @@ export function QuickCreateTask({ onClose }) {
         defaultValues: { priority: 'MEDIUM', status: 'TODO', assigneeIds: [] },
     });
 
-    // The epic decides who may be assigned: a task in a team-owned epic can only
-    // go to people in that team (the API rejects outsiders with 422).
+    // The epic decides who may be assigned: an epic owned by one or more teams
+    // accepts members of any of them (the API rejects outsiders with 422).
     const epicId = form.watch('epicId');
     const selectedEpic = epics?.find((epic) => epic.id === epicId);
-    const epicTeamId = selectedEpic?.team?.id;
-    const { data: epicTeam } = useQuery({
-        queryKey: ['team', epicTeamId],
-        queryFn: () => apiClient.get(`/teams/${epicTeamId}`),
-        enabled: Boolean(epicTeamId),
-    });
-
-    const teamMemberIds = new Set((epicTeam?.members ?? []).map((member) => member.userId));
-    const assignableMembers = selectedEpic?.team
+    const epicTeams = selectedEpic?.teams ?? [];
+    const teamMemberIds = new Set(epicTeams.flatMap((team) => team.memberIds ?? []));
+    const assignableMembers = epicTeams.length
         ? (members ?? []).filter((member) => teamMemberIds.has(member.user.id))
         : (members ?? []);
 
-    // Drop selections that stop being valid when the epic changes team.
+    // Drop selections that stop being valid when the epic (and its teams) change.
     useEffect(() => {
-        if (!selectedEpic?.team || !epicTeam) return;
+        if (!epicTeams.length) return;
         const current = form.getValues('assigneeIds') ?? [];
         const next = current.filter((id) => teamMemberIds.has(id));
         if (next.length !== current.length) form.setValue('assigneeIds', next);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [epicTeam, epicId]);
+    }, [epicId]);
 
     const mutation = useMutation({
         mutationFn: (values) =>

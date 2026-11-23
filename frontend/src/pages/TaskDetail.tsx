@@ -819,29 +819,25 @@ function EditTaskModal({
     const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
         setForm((prev) => ({ ...prev, [key]: value }));
 
-    // A team-owned epic limits assignees to that team's members (API enforces 422).
+    // An epic owned by one or more teams accepts members of any of them
+    // (the API enforces this with a 422).
     const selectedEpic = epics.find((epic: any) => epic.id === form.epicId);
-    const epicTeamId = selectedEpic?.team?.id as string | undefined;
-    const { data: epicTeam } = useQuery({
-        queryKey: ['team', epicTeamId],
-        queryFn: () => apiClient.get<any>(`/teams/${epicTeamId}`),
-        enabled: Boolean(epicTeamId),
-    });
+    const epicTeams: any[] = selectedEpic?.teams ?? [];
     const allowedIds = new Set<string>(
-        ((epicTeam?.members ?? []) as any[]).map((member) => member.userId),
+        epicTeams.flatMap((team: any) => (team.memberIds ?? []) as string[]),
     );
-    const assignableMembers = selectedEpic?.team
+    const assignableMembers = epicTeams.length
         ? members.filter((member: any) => allowedIds.has(member.user.id))
         : members;
 
     useEffect(() => {
-        if (!selectedEpic?.team || !epicTeam) return;
+        if (!epicTeams.length) return;
         setForm((prev) => {
             const next = prev.assigneeIds.filter((assigneeId: string) => allowedIds.has(assigneeId));
             return next.length === prev.assigneeIds.length ? prev : { ...prev, assigneeIds: next };
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [epicTeam, form.epicId]);
+    }, [form.epicId]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -923,8 +919,8 @@ function EditTaskModal({
                         <Field
                             label="Epic"
                             hint={
-                                selectedEpic?.team
-                                    ? `Assignees must be members of ${selectedEpic.team.name}.`
+                                epicTeams.length
+                                    ? `Assignees must be members of ${epicTeams.map((team: any) => team.name).join(', ')}.`
                                     : 'Optional grouping.'
                             }
                         >
@@ -972,10 +968,10 @@ function EditTaskModal({
                         </Field>
                     </div>
 
-                    {selectedEpic?.team && (
+                    {epicTeams.length > 0 && (
                         <p className="rounded-lg border border-[#2563EB]/25 bg-[#2563EB]/5 px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                            Team <strong>{selectedEpic.team.name}</strong> owns this epic — only its{' '}
-                            {assignableMembers.length} member(s) can be assigned.
+                            Owned by <strong>{epicTeams.map((team: any) => team.name).join(', ')}</strong> —
+                            only their {assignableMembers.length} member(s) can be assigned.
                         </p>
                     )}
 

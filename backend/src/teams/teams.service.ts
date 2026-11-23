@@ -43,7 +43,7 @@ export class TeamsService {
         if (!team) throw new NotFoundException('Team not found');
 
         const epics = await this.prisma.epic.findMany({
-            where: { teamId: team.id, workspaceId },
+            where: { workspaceId, teams: { some: { teamId: team.id } } },
             orderBy: [{ reference: 'asc' }],
             select: {
                 id: true,
@@ -51,6 +51,7 @@ export class TeamsService {
                 title: true,
                 status: true,
                 dueDate: true,
+                teams: { select: { team: { select: { id: true, name: true } } } },
                 _count: { select: { tasks: true } },
             },
         });
@@ -58,6 +59,7 @@ export class TeamsService {
         const epicsWithOpen = await Promise.all(
             epics.map(async (epic) => ({
                 ...epic,
+                teams: epic.teams.map((row) => row.team),
                 taskCount: epic._count.tasks,
                 openTasks: await this.prisma.task.count({
                     where: { ...OPEN_TASK_WHERE, epicId: epic.id },
@@ -123,7 +125,7 @@ export class TeamsService {
                 memberCount: team._count.members,
                 epicCount: team._count.epics,
                 openTasks: await this.prisma.task.count({
-                    where: { ...OPEN_TASK_WHERE, epic: { teamId: team.id } },
+                    where: { ...OPEN_TASK_WHERE, epic: { teams: { some: { teamId: team.id } } } },
                 }),
                 members: team.members,
             })),
@@ -171,13 +173,12 @@ export class TeamsService {
     }
 
     /**
-     * Deleting a team never deletes work: `Epic.teamId` is ON DELETE SET NULL,
-     * so every epic (and therefore every task, subtask and time entry under it)
-     * simply becomes team-less.
+     * Deleting a team never deletes work: its `EpicTeam` rows cascade away, so
+     * epics it owned simply lose that owner (and stay owned by any other team).
      */
     async remove(m: Membership, id: string) {
         await this.loadTeam(m.workspaceId, id);
-        const detachedEpics = await this.prisma.epic.count({ where: { teamId: id } });
+        const detachedEpics = await this.prisma.epicTeam.count({ where: { teamId: id } });
         await this.prisma.team.delete({ where: { id } });
         return { ok: true, detachedEpics };
     }
@@ -216,7 +217,11 @@ export class TeamsService {
         // Tasks already assigned to this person are intentionally left alone;
         // they surface as a warning on the team detail screen instead.
         const openAssignedTasks = await this.prisma.task.count({
-            where: { ...OPEN_TASK_WHERE, epic: { teamId }, assignees: { some: { userId } } },
+            where: {
+                ...OPEN_TASK_WHERE,
+                epic: { teams: { some: { teamId } } },
+                assignees: { some: { userId } },
+            },
         });
         return { ok: true, openAssignedTasks };
     }
@@ -232,7 +237,7 @@ export class TeamsService {
 
         // One pass over the team's open tasks, aggregated in memory: teams are small.
         const tasks = await this.prisma.task.findMany({
-            where: { ...OPEN_TASK_WHERE, epic: { teamId } },
+            where: { ...OPEN_TASK_WHERE, epic: { teams: { some: { teamId } } } },
             select: {
                 id: true,
                 estimatedHrs: true,

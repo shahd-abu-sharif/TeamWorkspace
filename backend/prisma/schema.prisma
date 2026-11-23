@@ -255,7 +255,7 @@ model Team {
 
   workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members   TeamMember[]
-  epics     Epic[]
+  epics     EpicTeam[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId, type])
@@ -287,19 +287,30 @@ model Epic {
   priority    Priority   @default(MEDIUM)
   startDate   DateTime?
   dueDate     DateTime?
-  teamId      String?
   createdById String
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  team      Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  createdBy User      @relation("EpicCreator", fields: [createdById], references: [id])
+  workspace Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User       @relation("EpicCreator", fields: [createdById], references: [id])
   tasks     Task[]
+  teams     EpicTeam[]
 
   @@unique([workspaceId, reference])
-  @@index([workspaceId, teamId])
   @@index([workspaceId, status])
+}
+
+/// An epic can be owned by several teams; its tasks may then be assigned to
+/// members of any of them.
+model EpicTeam {
+  epicId String
+  teamId String
+
+  epic Epic @relation(fields: [epicId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([epicId, teamId])
+  @@index([teamId])
 }
 
 model Task {

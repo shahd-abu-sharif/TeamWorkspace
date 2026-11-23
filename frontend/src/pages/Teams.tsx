@@ -405,7 +405,7 @@ export function TeamDetailPage() {
                             <li key={epic.id} className="flex flex-wrap items-center gap-3 py-3">
                                 <Link to={`/epics/${epic.id}`} className="min-w-0 flex-1 hover:underline">
                                     <p className="truncate text-sm font-medium">
-                                        <span className="text-slate-400">{epicCode({ ...epic, team })}</span> {epic.title}
+                                        <span className="text-slate-400">{epicCode(epic)}</span> {epic.title}
                                     </p>
                                     <p className="mt-0.5 text-xs text-slate-500">
                                         {t('epics.progress', { open: epic.openTasks, total: epic.taskCount })} ·{' '}
