@@ -37,6 +37,21 @@ enum InvitationStatus {
   REVOKED
 }
 
+// Discipline a team works in. An enum keeps the UI grouping and filters
+// stable instead of a free-text taxonomy.
+enum TeamType {
+  UIUX
+  FRONTEND
+  BACKEND
+  MOBILE
+  OTHER
+}
+
+enum TeamMemberRole {
+  LEAD
+  MEMBER
+}
+
 enum ImportStatus {
   DRAFT
   PROCESSING
@@ -117,6 +132,8 @@ model User {
   receivedChatMessages ChatMessage[]           @relation("ChatRecipient")
   chatReceipts         ChatMessageReceipt[]
   completedSubtasks    Subtask[]               @relation("SubtaskDoneBy")
+  teamMemberships      TeamMember[]
+  createdEpics         Epic[]                  @relation("EpicCreator")
 
   @@index([email])
 }
@@ -154,6 +171,8 @@ model Workspace {
   importJobs   ImportJob[]
   activities   TaskActivity[]
   chatMessages ChatMessage[]
+  teams        Team[]
+  epics        Epic[]
 }
 
 model WorkspaceMember {
@@ -223,6 +242,66 @@ model Tag {
 
 // ---------------------------------------------------------------- tasks
 
+// ---------------------------------------------------------------- teams & epics
+
+model Team {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  type        TeamType @default(OTHER)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   TeamMember[]
+  epics     Epic[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, type])
+}
+
+model TeamMember {
+  id         String         @id @default(cuid())
+  teamId     String
+  userId     String
+  roleInTeam TeamMemberRole @default(MEMBER)
+  createdAt  DateTime       @default(now())
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([userId])
+}
+
+// An epic is a container above tasks: one epic -> many tasks -> many subtasks.
+// Tasks keep their own nested subtasks; an epic never re-parents or rewrites them.
+model Epic {
+  id          String     @id @default(cuid())
+  workspaceId String
+  reference   Int
+  title       String
+  description String?
+  status      TaskStatus @default(BACKLOG)
+  priority    Priority   @default(MEDIUM)
+  startDate   DateTime?
+  dueDate     DateTime?
+  teamId      String?
+  createdById String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team      Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  createdBy User      @relation("EpicCreator", fields: [createdById], references: [id])
+  tasks     Task[]
+
+  @@unique([workspaceId, reference])
+  @@index([workspaceId, teamId])
+  @@index([workspaceId, status])
+}
+
 model Task {
   id           String     @id @default(cuid())
   workspaceId  String
@@ -230,6 +309,7 @@ model Task {
   title        String
   description  String?
   workstreamId String?
+  epicId       String?
   createdById  String
   links        String[]   @default([])
   priority     Priority   @default(MEDIUM)
@@ -247,6 +327,7 @@ model Task {
 
   workspace     Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   workstream    Workstream?        @relation(fields: [workstreamId], references: [id], onDelete: SetNull)
+  epic          Epic?              @relation(fields: [epicId], references: [id], onDelete: SetNull)
   createdBy     User               @relation("TaskCreator", fields: [createdById], references: [id])
   assignees     TaskAssignee[]
   collaborators TaskCollaborator[]
@@ -266,6 +347,7 @@ model Task {
   @@index([workspaceId, priority])
   @@index([workspaceId, isArchived])
   @@index([workspaceId, workstreamId])
+  @@index([workspaceId, epicId])
 }
 
 model Subtask {

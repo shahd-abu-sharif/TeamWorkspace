@@ -11,7 +11,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       throw new Error('DATABASE_URL is required for Prisma PostgreSQL adapter');
     }
 
-    const adapter = new PrismaPg({ connectionString });
+    // Cap the node-postgres pool per process. Supabase's pooler has a small
+    // connection budget, and a runaway pool shows up as P2028
+    // "Unable to start a transaction in the given time" on every request.
+    const adapter = new PrismaPg({
+      connectionString,
+      max: Number(process.env.DATABASE_POOL_MAX ?? 5),
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+    });
 
     super({
       adapter,

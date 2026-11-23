@@ -27,6 +27,9 @@ const taskFieldsSchema = z.object({
     title: z.string().min(2).max(200),
     description: z.string().max(10_000).optional(),
     workstreamId: z.string().cuid().nullable().optional(),
+    // Epics are an optional grouping layer above tasks. Nullable so every
+    // existing task keeps working untouched.
+    epicId: z.string().cuid().nullable().optional(),
     assigneeIds: z.array(z.string().cuid()).max(10).default([]),
     collaboratorIds: z.array(z.string().cuid()).max(20).default([]),
     priority: z.enum(PRIORITIES).default('MEDIUM'),
@@ -48,7 +51,12 @@ export const CreateTaskSchema = taskFieldsSchema
         { message: 'Start date must be before the deadline', path: ['dueDate'] },
     );
 
-export const UpdateTaskSchema = taskFieldsSchema.partial();
+export const UpdateTaskSchema = taskFieldsSchema.partial().extend({
+    // Single-assignee write. Projected onto the existing TaskAssignee join
+    // table, so timer/time-entry bookkeeping is unchanged. Rejected (422) when
+    // the task's epic belongs to a team the person is not in.
+    assigneeId: z.string().cuid().nullable().optional(),
+});
 
 export const LeaderUpdateSchema = UpdateTaskSchema.extend({
     isArchived: z.boolean().optional(),
@@ -82,6 +90,7 @@ export const TaskQuerySchema = z.object({
     status: z.union([z.enum(STATUSES), z.array(z.enum(STATUSES))]).optional(),
     priority: z.union([z.enum(PRIORITIES), z.array(z.enum(PRIORITIES))]).optional(),
     assigneeId: z.string().optional(),
+    epicId: z.string().optional(),
     workstreamId: z.string().optional(),
     tag: z.string().optional(),
     dueFrom: z.string().optional(),
@@ -206,16 +215,4 @@ export type TaskQueryDto = z.infer<typeof TaskQuerySchema>;
 //         status: z.enum(STATUSES).optional(),
 //         priority: z.enum(PRIORITIES).optional(),
 //         dueDate: dateish,
-//         addAssigneeIds: z.array(z.string().cuid()).optional(),
-//         removeAssigneeIds: z.array(z.string().cuid()).optional(),
-//         workstreamId: z.string().cuid().nullable().optional(),
-//     }),
-// });
-
-// export const CommentSchema = z.object({
-//     body: z.string().min(1).max(5000),
-// });
-
-// export type CreateTaskDto = z.infer<typeof CreateTaskSchema>;
-// export type UpdateTaskDto = z.infer<typeof UpdateTaskSchema>;
-// export type TaskQueryDto = z.infer<typeof TaskQuerySchema>;
+//       

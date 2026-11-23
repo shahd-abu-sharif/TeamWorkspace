@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '../lib/api.js';
+import { epicLabel } from '../lib/epic-key';
 import { MarkdownEditor } from './MarkdownEditor';
 
 const createSchema = (t) => z.object({
@@ -15,6 +16,7 @@ const createSchema = (t) => z.object({
     status: z.enum(['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED', 'DONE']),
     assigneeIds: z.array(z.string()).default([]),
     workstreamId: z.string().nullable().optional(),
+    epicId: z.string().nullable().optional(),
     startDate: z.string().nullable().optional(),
     dueDate: z.string().nullable().optional(),
     estimatedHrs: z.coerce.number().min(0).max(9999).nullable().optional(),
@@ -38,17 +40,47 @@ export function QuickCreateTask({ onClose }) {
         queryKey: ['workstreams'],
         queryFn: () => apiClient.get('/workstreams'),
     });
+    const { data: epics } = useQuery({
+        queryKey: ['epics'],
+        queryFn: () => apiClient.get('/epics'),
+    });
 
     const form = useForm({
         resolver: zodResolver(createSchema(t)),
         defaultValues: { priority: 'MEDIUM', status: 'TODO', assigneeIds: [] },
     });
 
+    // The epic decides who may be assigned: a task in a team-owned epic can only
+    // go to people in that team (the API rejects outsiders with 422).
+    const epicId = form.watch('epicId');
+    const selectedEpic = epics?.find((epic) => epic.id === epicId);
+    const epicTeamId = selectedEpic?.team?.id;
+    const { data: epicTeam } = useQuery({
+        queryKey: ['team', epicTeamId],
+        queryFn: () => apiClient.get(`/teams/${epicTeamId}`),
+        enabled: Boolean(epicTeamId),
+    });
+
+    const teamMemberIds = new Set((epicTeam?.members ?? []).map((member) => member.userId));
+    const assignableMembers = selectedEpic?.team
+        ? (members ?? []).filter((member) => teamMemberIds.has(member.user.id))
+        : (members ?? []);
+
+    // Drop selections that stop being valid when the epic changes team.
+    useEffect(() => {
+        if (!selectedEpic?.team || !epicTeam) return;
+        const current = form.getValues('assigneeIds') ?? [];
+        const next = current.filter((id) => teamMemberIds.has(id));
+        if (next.length !== current.length) form.setValue('assigneeIds', next);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [epicTeam, epicId]);
+
     const mutation = useMutation({
         mutationFn: (values) =>
             apiClient.post('/tasks', {
                 ...values,
                 workstreamId: values.workstreamId || null,
+                epicId: values.epicId || null,
                 startDate: values.startDate ? new Date(values.startDate).toISOString() : null,
                 dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : null,
                 estimatedHrs: values.estimatedHrs ?? null,
@@ -137,9 +169,38 @@ export function QuickCreateTask({ onClose }) {
                         </Field>
                     </div>
 
+                    <Field
+                        label="Epic"
+                        hint={
+                            selectedEpic?.team
+                                ? t('tasks.assigneesMustBeTeamMembers', {
+                                      team: selectedEpic.team.name,
+                                  })
+                                : t('tasks.epicHint')
+                        }
+                    >
+                        <select {...form.register('epicId')} className={input}>
+                            <option value="">— {t('epics.noEpic')} —</option>
+                            {epics?.map((epic) => (
+                                <option key={epic.id} value={epic.id}>
+                                    {epicLabel(epic)}
+                                </option>
+                            ))}
+                        </select>
+                    </Field>
+
+                    {selectedEpic?.team && (
+                        <div className="rounded-lg border border-[#2563EB]/25 bg-[#2563EB]/5 px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
+                            {t('tasks.assigneesFromTeam', {
+                                team: selectedEpic.team.name,
+                                count: assignableMembers.length,
+                            })}
+                        </div>
+                    )}
+
                     <Field label={t('tasks.assignees')} hint={t('tasks.assigneesHint')}>
                         <select {...form.register('assigneeIds')} multiple className={`${input} h-32`}>
-                            {members?.map((m) => (
+                            {assignableMembers.map((m) => (
                                 <option key={m.user.id} value={m.user.id}>
                                     {m.user.name}
                                 </option>

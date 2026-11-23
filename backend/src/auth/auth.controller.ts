@@ -51,7 +51,7 @@ export class AuthController {
   @Public()
   @Post('logout')
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie(REFRESH_COOKIE, { path: '/api/auth' });
+    res.clearCookie(REFRESH_COOKIE, this.cookieOptions());
     return { ok: true };
   }
 
@@ -105,13 +105,39 @@ export class AuthController {
     return this.auth.revokeInvitation(req.membership.workspaceId, req.params.id);
   }
 
-  private setRefreshCookie(res: Response, token: string) {
-    res.cookie(REFRESH_COOKIE, token, {
+  /**
+   * Refresh-cookie attributes.
+   *
+   * `SameSite=Lax` is only sent on *same-site* requests. Locally the web app and
+   * the API share the `localhost` site (ports do not matter), so Lax is fine —
+   * but when the web app is deployed on a different domain than the API
+   * (e.g. Vercel frontend + Render API) the cookie is dropped on every XHR and
+   * the session looks dead after a page reload. Production therefore defaults to
+   * `SameSite=None; Secure`, which a browser accepts for cross-site requests.
+   *
+   * Override with COOKIE_SAMESITE / COOKIE_SECURE when the frontend is served
+   * behind the same domain as the API (a proxy rewrite keeps everything
+   * same-origin and `lax` is the safer choice there).
+   */
+  private cookieOptions() {
+    const isProd = process.env.NODE_ENV === 'production';
+    const sameSite = (process.env.COOKIE_SAMESITE?.toLowerCase() ??
+      (isProd ? 'none' : 'lax')) as 'lax' | 'none' | 'strict';
+    // A cookie with SameSite=None is rejected by browsers unless it is Secure.
+    const secure = process.env.COOKIE_SECURE
+      ? process.env.COOKIE_SECURE === 'true'
+      : isProd || sameSite === 'none';
+
+    return {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure,
+      sameSite,
       path: '/api/auth',
       maxAge: 30 * 24 * 60 * 60 * 1000,
-    });
+    } as const;
+  }
+
+  private setRefreshCookie(res: Response, token: string) {
+    res.cookie(REFRESH_COOKIE, token, this.cookieOptions());
   }
 }

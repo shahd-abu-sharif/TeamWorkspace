@@ -8,6 +8,17 @@ const taskReadInclude = {
     collaborators: { include: { user: { select: { id: true, name: true } } } },
     tags: { include: { tag: true } },
     workstream: true,
+    // Epics are an optional grouping layer; a task may belong to none.
+    epic: {
+        select: {
+            id: true,
+            reference: true,
+            title: true,
+            status: true,
+            teamId: true,
+            team: { select: { id: true, name: true } },
+        },
+    },
     dependencies: {
         include: {
             dependsOn: { select: { id: true, reference: true, title: true, status: true } },

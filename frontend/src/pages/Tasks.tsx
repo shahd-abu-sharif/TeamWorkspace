@@ -2,9 +2,10 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Filter, Upload } from 'lucide-react';
+import { Filter, Layers, Upload } from 'lucide-react';
 import { apiClient } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { epicCode, epicLabel } from '../lib/epic-key';
 import { EmptyState, ErrorState, PriorityDot, StatusBadge } from './Dashboard';
 import { btnSecondary } from '../components/QuickCreateTask';
 import { useTranslation } from 'react-i18next';
@@ -19,6 +20,7 @@ interface Task {
     estimatedHrs: number | null;
     assignees: { user: { id: string; name: string } }[];
     workstream?: { name: string; color: string } | null;
+    epic?: { id: string; reference: number; title: string } | null;
 }
 
 export function TasksPage({ mine = false }: { mine?: boolean }) {
@@ -36,6 +38,7 @@ export function TasksPage({ mine = false }: { mine?: boolean }) {
         overdue: params.get('overdue') === 'true',
         unassigned: params.get('unassigned') === 'true',
         awaitingReview: params.get('awaitingReview') === 'true',
+        epicId: params.get('epicId') ?? '',
     };
 
     const query = new URLSearchParams();
@@ -47,6 +50,7 @@ export function TasksPage({ mine = false }: { mine?: boolean }) {
     if (filters.overdue) query.set('overdue', 'true');
     if (filters.unassigned) query.set('unassigned', 'true');
     if (filters.awaitingReview) query.set('awaitingReview', 'true');
+    if (filters.epicId) query.set('epicId', filters.epicId);
 
     const { data, isLoading, error } = useQuery({
         queryKey: ['tasks', query.toString()],
@@ -57,6 +61,12 @@ export function TasksPage({ mine = false }: { mine?: boolean }) {
         queryKey: ['members'],
         queryFn: () => apiClient.get<{ user: { id: string; name: string } }[]>('/members'),
         enabled: role === 'LEADER',
+    });
+
+    const { data: epics } = useQuery({
+        queryKey: ['epics'],
+        queryFn: () => apiClient.get<{ id: string; reference: number; title: string }[]>('/epics'),
+        enabled: role === 'LEADER' && showFilters,
     });
 
     const setFilter = (key: string, value: string) => {
@@ -135,6 +145,14 @@ export function TasksPage({ mine = false }: { mine?: boolean }) {
                             <option value="">{t('tasks.anyone')}</option>
                             {members?.map((m) => (
                                 <option key={m.user.id} value={m.user.id}>{m.user.name}</option>
+                            ))}
+                        </select>
+                    )}
+                    {epics && epics.length > 0 && (
+                        <select value={filters.epicId} onChange={(e) => setFilter('epicId', e.target.value)} className={fselect}>
+                            <option value="">{t('epics.filters.all')}</option>
+                            {epics.map((epic) => (
+                                <option key={epic.id} value={epic.id}>{epicLabel(epic)}</option>
                             ))}
                         </select>
                     )}
@@ -217,6 +235,15 @@ export function TasksPage({ mine = false }: { mine?: boolean }) {
                                                     <span className="size-2 rounded-full" style={{ background: task.workstream.color }} />
                                                     {task.workstream.name}
                                                 </span>
+                                            )}
+                                            {task.epic && (
+                                                <Link
+                                                    to={`/epics/${task.epic.id}`}
+                                                    className="ms-2 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-[#1D4ED8] hover:underline dark:bg-blue-950/40 dark:text-blue-300"
+                                                >
+                                                    <Layers className="size-3" />
+                                                    {epicCode(task.epic)}
+                                                </Link>
                                             )}
                                         </td>
                                         <td className="hidden p-3 text-slate-600 sm:table-cell dark:text-slate-400">

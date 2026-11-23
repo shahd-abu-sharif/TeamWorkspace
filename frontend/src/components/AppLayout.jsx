@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   Bell, Calendar, ChartBar, ChevronDown, ChevronRight, Clock, FileText,
-  LayoutDashboard, ListChecks, Menu, MessageCircle, Plus, Search, Settings,
-  SlidersHorizontal, Users,
+  LayoutDashboard, Layers, ListChecks, Menu, MessageCircle, Plus, Search, Settings,
+  SlidersHorizontal, Users, UsersRound,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -22,17 +22,19 @@ const NAV_MAIN = [
   { to: '/timeline', labelKey: 'timeline', icon: Clock },
   { to: '/calendar', labelKey: 'calendar', icon: Calendar },
   { to: '/chat', labelKey: 'chat', icon: MessageCircle },
+  { to: '/epics', labelKey: 'epics', icon: Layers },
 ];
 
 const NAV_ADMIN = [
   { to: '/team', labelKey: 'team', icon: Users, leaderOnly: true },
+  { to: '/teams', labelKey: 'teams', icon: UsersRound },
   { to: '/reports', labelKey: 'reports', icon: ChartBar, leaderOnly: true },
   { to: '/import', labelKey: 'import', icon: FileText, leaderOnly: true },
 ];
 
 export function AppLayout() {
   const { t } = useTranslation();
-  const { user, role, logout } = useAuth();
+  const { user, role, workspaceId, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -97,13 +99,13 @@ export function AppLayout() {
   }, []);
 
   const { data: unread } = useQuery({
-    queryKey: ['unread-count'],
+    queryKey: ['unread-count', workspaceId],
     queryFn: () => apiClient.get('/notifications/unread-count'),
     refetchInterval: 10_000,
   });
 
   const { data: recentNotifications } = useQuery({
-    queryKey: ['desktop-notifications', user?.id],
+    queryKey: ['desktop-notifications', user?.id, workspaceId],
     queryFn: () => apiClient.get('/notifications?page=1&pageSize=8&unread=true'),
     enabled: Boolean(user?.id),
     refetchInterval: 10_000,
@@ -111,7 +113,7 @@ export function AppLayout() {
 
   useEffect(() => {
     if (!user?.id || !recentNotifications?.items) return;
-    const key = `tth_seen_notifications_${user.id}`;
+    const key = `tth_seen_notifications_${user.id}_${workspaceId ?? 'none'}`;
     const current = recentNotifications.items.map((item) => item.id);
     let previous = [];
     try { previous = JSON.parse(sessionStorage.getItem(key) ?? '[]'); } catch { previous = []; }
@@ -132,7 +134,7 @@ export function AppLayout() {
               icon: '/TadreebyLogo.svg',
               badge: '/TadreebyLogo.svg',
               tag: item.id,
-              data: { url: item.url || '/notifications' },
+              data: { url: item.url || '/notifications', workspaceId },
             }),
           ),
         ))
@@ -140,7 +142,7 @@ export function AppLayout() {
           console.error('Could not show desktop notification:', error);
         });
     }
-  }, [recentNotifications, user?.id]);
+  }, [recentNotifications, user?.id, workspaceId]);
 
   const workspace =
     user?.memberships.find((m) => m.workspace.id === localStorage.getItem('tth_workspace'))?.workspace ??
