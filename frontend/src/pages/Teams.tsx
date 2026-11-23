@@ -14,6 +14,7 @@ import { useAuth } from '../lib/auth';
 import { epicCode } from '../lib/epic-key';
 import { btnDanger, btnPrimary, btnSecondary, Field, input } from '../components/QuickCreateTask';
 import { StatusBadge } from './Dashboard';
+import { TeamDiscussions } from './Discussions';
 
 const TEAM_TYPES = ['UIUX', 'FRONTEND', 'BACKEND', 'MOBILE', 'OTHER'] as const;
 const ROLES = ['LEAD', 'MEMBER'] as const;
@@ -392,6 +393,8 @@ export function TeamDetailPage() {
                     </p>
                 ) : null}
             </section>
+
+            <TeamDiscussions teamId={team.id} />
 
             <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                 <h2 className="mb-3 flex items-center gap-2 font-semibold">

@@ -19,6 +19,7 @@ import { TeamPage } from './pages/Team.tsx';
 import { ReportsPage } from './pages/Reports.tsx';
 import { EpicDetailPage, EpicsPage } from './pages/Epics.tsx';
 import { TeamDetailPage, TeamsPage } from './pages/Teams.tsx';
+import { DiscussionDetailPage } from './pages/Discussions.tsx';
 import { ChatPage } from './pages/Chat.tsx';
 import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordRecovery.tsx';
 const queryClient = new QueryClient({
@@ -85,6 +86,7 @@ function ProtectedRoutes() {
         <Route path="epics/:id" element={<EpicDetailPage />} />
         <Route path="teams" element={<TeamsPage />} />
         <Route path="teams/:id" element={<TeamDetailPage />} />
+        <Route path="teams/:teamId/discussions/:discussionId" element={<DiscussionDetailPage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
