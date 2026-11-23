@@ -10,7 +10,7 @@ self.addEventListener('push', (event) => {
       icon: '/TadreebyLogo.svg',
       badge: '/TadreebyLogo.svg',
       tag: payload.tag || payload.id,
-      data: { url: payload.url || '/notifications' },
+      data: { url: payload.url || '/notifications', workspaceId: payload.workspaceId },
     });
   })());
 });
@@ -19,6 +19,8 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const target = new URL(event.notification.data?.url || '/notifications', self.location.origin);
   if (target.origin !== self.location.origin) return;
+  const workspaceId = event.notification.data?.workspaceId;
+  if (workspaceId) target.searchParams.set('ws', workspaceId);
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for (const client of windows) {

@@ -245,6 +245,7 @@ export class NotificationsService {
 
         const payload = JSON.stringify({
             id: notification.id,
+            workspaceId: notification.workspaceId,
             title: notification.title,
             body: notification.body,
             url: notification.url ?? '/notifications',
@@ -328,8 +329,12 @@ export class NotificationsService {
 
     // ---------------------------------------------------------------- inbox
 
-    async list(userId: string, opts: { unreadOnly?: boolean; page: number; pageSize: number }) {
-        const where = { userId, ...(opts.unreadOnly ? { readAt: null } : {}) };
+    async list(
+        workspaceId: string,
+        userId: string,
+        opts: { unreadOnly?: boolean; page: number; pageSize: number },
+    ) {
+        const where = { userId, workspaceId, ...(opts.unreadOnly ? { readAt: null } : {}) };
         // Read-only: Promise.all avoids opening a transaction just to run
         // three SELECTs (transaction slots are scarce behind a pooler).
         const [items, total, unread] = await Promise.all([
@@ -340,30 +345,34 @@ export class NotificationsService {
                 take: opts.pageSize,
             }),
             this.prisma.notification.count({ where }),
-            this.prisma.notification.count({ where: { userId, readAt: null } }),
+            this.prisma.notification.count({ where: { userId, workspaceId, readAt: null } }),
         ]);
         return { items, total, unread, page: opts.page, pageSize: opts.pageSize };
     }
 
-    async markRead(userId: string, id: string) {
+    async markRead(workspaceId: string, userId: string, id: string) {
         const result = await this.prisma.notification.updateMany({
-            where: { id, userId },
+            where: { id, userId, workspaceId },
             data: { readAt: new Date() },
         });
         if (!result.count) throw new NotFoundException('Notification not found');
         return { ok: true };
     }
 
-    async markAllRead(userId: string) {
+    async markAllRead(workspaceId: string, userId: string) {
         await this.prisma.notification.updateMany({
-            where: { userId, readAt: null },
+            where: { userId, workspaceId, readAt: null },
             data: { readAt: new Date() },
         });
         return { ok: true };
     }
 
-    async unreadCount(userId: string) {
-        return { count: await this.prisma.notification.count({ where: { userId, readAt: null } }) };
+    async unreadCount(workspaceId: string, userId: string) {
+        return {
+            count: await this.prisma.notification.count({
+                where: { userId, workspaceId, readAt: null },
+            }),
+        };
     }
 
     // ---------------------------------------------------------------- preferences

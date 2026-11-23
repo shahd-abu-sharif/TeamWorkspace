@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Bell, BellRing, Check, CheckCheck, Smartphone } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { apiClient } from '../lib/api';
+import { useAuth } from '../lib/auth';
 import { enablePush, pushState, syncPushSubscription } from '../lib/push';
 import { btnPrimary, btnSecondary } from '../components/QuickCreateTask';
 import { useTranslation } from 'react-i18next';
@@ -22,12 +23,13 @@ interface Notification {
 export function NotificationsPage() {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    const { workspaceId } = useAuth();
     const [tab, setTab] = useState<'all' | 'unread'>('all');
     const [pushMessage, setPushMessage] = useState<string | null>(null);
     const [pushActive, setPushActive] = useState(false);
 
     const { data, isLoading } = useQuery({
-        queryKey: ['notifications', tab],
+        queryKey: ['notifications', tab, workspaceId],
         queryFn: () =>
             apiClient.get<{ items: Notification[]; unread: number }>(
                 `/notifications?pageSize=50${tab === 'unread' ? '&unread=true' : ''}`,
