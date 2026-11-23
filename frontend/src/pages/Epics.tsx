@@ -32,8 +32,7 @@ interface EpicSummary {
     priority: string;
     startDate: string | null;
     dueDate: string | null;
-    teamId: string | null;
-    team: { id: string; name: string; type: string; _count?: { members: number } } | null;
+    teams: { id: string; name: string; type: string; memberIds?: string[] }[];
     taskCount: number;
     openTasks: number;
 }
@@ -52,7 +51,6 @@ interface EpicTask {
 
 interface EpicDetail extends Omit<EpicSummary, 'tasks'> {
     tasks: EpicTask[];
-    team: { id: string; name: string; type: string } | null;
 }
 
 interface EpicWarning {
@@ -154,9 +152,20 @@ export function EpicsPage() {
 
                         <div className="mt-3 flex flex-wrap items-center gap-2">
                             <StatusBadge status={epic.status} />
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                                {epic.team?.name ?? t('epics.noTeam')}
-                            </span>
+                            {epic.teams.length === 0 ? (
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                    {t('epics.noTeam')}
+                                </span>
+                            ) : (
+                                epic.teams.map((team) => (
+                                    <span
+                                        key={team.id}
+                                        className="rounded-full bg-[#2563EB]/10 px-2 py-0.5 text-xs text-[#1D4ED8] dark:bg-blue-950/40 dark:text-blue-300"
+                                    >
+                                        {team.name}
+                                    </span>
+                                ))
+                            )}
                         </div>
 
                         <div className="mt-4">
@@ -222,9 +231,20 @@ export function EpicDetailPage() {
                         <span className="inline-flex items-center gap-1.5 text-sm">
                             <PriorityDot priority={epic.priority} /> {epic.priority}
                         </span>
-                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                            {epic.team?.name ?? t('epics.noTeam')}
-                        </span>
+                        {epic.teams.length === 0 ? (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                                {t('epics.noTeam')}
+                            </span>
+                        ) : (
+                            epic.teams.map((team) => (
+                                <span
+                                    key={team.id}
+                                    className="rounded-full bg-[#2563EB]/10 px-2 py-0.5 text-xs text-[#1D4ED8] dark:bg-blue-950/40 dark:text-blue-300"
+                                >
+                                    {team.name}
+                                </span>
+                            ))
+                        )}
                     </div>
                 </div>
                 {role === 'LEADER' && (
@@ -378,7 +398,7 @@ function EpicFormModal({
         description: epic?.description ?? '',
         priority: epic?.priority ?? 'MEDIUM',
         status: epic?.status ?? 'BACKLOG',
-        teamId: epic?.teamId ?? '',
+        teamIds: epic?.teams?.map((team) => team.id) ?? [],
         startDate: epic?.startDate ? epic.startDate.slice(0, 10) : '',
         dueDate: epic?.dueDate ? epic.dueDate.slice(0, 10) : '',
     });
@@ -395,7 +415,7 @@ function EpicFormModal({
                 description: form.description.trim() || null,
                 priority: form.priority,
                 status: form.status,
-                teamId: form.teamId || null,
+                teamIds: form.teamIds,
                 startDate: form.startDate ? new Date(form.startDate).toISOString() : null,
                 dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
             };
@@ -464,18 +484,35 @@ function EpicFormModal({
 
                     <div className="grid gap-4 sm:grid-cols-2">
                         <Field label={t('epics.form.team')}>
-                            <select
-                                value={form.teamId}
-                                onChange={(e) => update('teamId', e.target.value)}
-                                className={input}
-                            >
-                                <option value="">{t('epics.noTeam')}</option>
-                                {teams.map((team) => (
-                                    <option key={team.id} value={team.id}>
-                                        {team.name}
-                                    </option>
-                                ))}
-                            </select>
+                            <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2 dark:border-slate-800">
+                                {teams.length === 0 && (
+                                    <p className="px-1 text-xs text-slate-500">{t('epics.noTeamsYet')}</p>
+                                )}
+                                {teams.map((team) => {
+                                    const checked = form.teamIds.includes(team.id);
+                                    return (
+                                        <label
+                                            key={team.id}
+                                            className="flex cursor-pointer items-center gap-2 rounded px-1 py-1 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={(e) =>
+                                                    update(
+                                                        'teamIds',
+                                                        e.target.checked
+                                                            ? [...form.teamIds, team.id]
+                                                            : form.teamIds.filter((id) => id !== team.id),
+                                                    )
+                                                }
+                                                className="size-4 accent-[#2563EB]"
+                                            />
+                                            <span className="truncate">{team.name}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
                         </Field>
                         <Field label={t('epics.form.status')}>
                             <select

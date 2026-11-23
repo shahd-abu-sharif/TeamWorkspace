@@ -117,8 +117,7 @@ export class TasksService {
                             id: true,
                             reference: true,
                             title: true,
-                            teamId: true,
-                            team: { select: { id: true, name: true } },
+                            teams: { select: { team: { select: { id: true, name: true } } } },
                         },
                     },
                     tags: { include: { tag: true } },
@@ -153,8 +152,7 @@ export class TasksService {
                         id: true,
                         reference: true,
                         title: true,
-                        teamId: true,
-                        team: { select: { id: true, name: true } },
+                        teams: { select: { team: { select: { id: true, name: true } } } },
                     },
                 },
                 tags: { include: { tag: true } },
@@ -1205,20 +1203,30 @@ export class TasksService {
 
         const epic = await this.prisma.epic.findFirst({
             where: { id: epicId, workspaceId },
-            select: { title: true, teamId: true },
+            select: {
+                title: true,
+                teams: { select: { team: { select: { name: true } } } },
+            },
         });
         if (!epic) throw new BadRequestException('Epic not found in this workspace');
-        if (!epic.teamId) return;
+        const teamIds = epic.teams.length
+            ? (await this.prisma.epicTeam.findMany({ where: { epicId }, select: { teamId: true } })).map(
+                  (row) => row.teamId,
+              )
+            : [];
+        if (!teamIds.length) return;
 
         const members = await this.prisma.teamMember.findMany({
-            where: { teamId: epic.teamId, userId: { in: [...new Set(assigneeIds)] } },
+            where: { teamId: { in: teamIds }, userId: { in: [...new Set(assigneeIds)] } },
             select: { userId: true },
         });
         const allowed = new Set(members.map((member) => member.userId));
         const outside = [...new Set(assigneeIds)].filter((userId) => !allowed.has(userId));
         if (outside.length) {
             throw new UnprocessableEntityException(
-                `${outside.length} assignee(s) are not members of the team that owns epic “${epic.title}”. Add them to the team first.`,
+                `${outside.length} assignee(s) are not members of the team(s) that own epic “${epic.title}” (${epic.teams
+                    .map((row) => row.team.name)
+                    .join(', ')}). Add them to one of those teams first.`,
             );
         }
     }

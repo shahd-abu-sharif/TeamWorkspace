@@ -130,7 +130,7 @@
         "showing": "{{count}} tasks",
         "epicHint": "Optional grouping. A team-owned epic limits assignees to that team.",
         "assigneesMustBeTeamMembers": "Assignees must be members of {{team}}.",
-        "assigneesFromTeam": "Team {{team}} owns this epic — showing its {{count}} member(s). Only these people can be assigned."
+        "assigneesFromTeam": "Owned by {{team}} — showing its {{count}} member(s). Only these people can be assigned."
     },
     "priority": {
         "URGENT": "Urgent",
@@ -375,9 +375,12 @@
             "description": "Description",
             "team": "Team",
             "status": "Status",
-            "priority": "Priority"
+            "priority": "Priority",
+            "teams": "Teams"
         },
-        "noEpic": "No epic"
+        "noEpic": "No epic",
+        "assigneesFromTeam": "Owned by {{team}} — showing its {{count}} member(s). Only these people can be assigned.",
+        "noTeamsYet": "No teams yet — create one on the Teams page."
     },
     "teams": {
         "title": "Teams",

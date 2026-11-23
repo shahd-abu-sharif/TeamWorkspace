@@ -15,8 +15,7 @@ const taskReadInclude = {
             reference: true,
             title: true,
             status: true,
-            teamId: true,
-            team: { select: { id: true, name: true } },
+            teams: { select: { team: { select: { id: true, name: true } } } },
         },
     },
     dependencies: {
