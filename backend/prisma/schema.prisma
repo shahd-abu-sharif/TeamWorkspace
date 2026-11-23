@@ -142,6 +142,7 @@ model User {
   discussions          TeamDiscussion[]        @relation("DiscussionAuthor")
   discussionReplies    TeamDiscussionReply[]   @relation("DiscussionReplyAuthor")
   discussionUploads    DiscussionAttachment[]
+  subtaskCompletions   SubtaskCompletion[]
 
   @@index([email])
 }
@@ -439,10 +440,26 @@ model Subtask {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  doneBy User? @relation("SubtaskDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  task        Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  doneBy      User?               @relation("SubtaskDoneBy", fields: [doneById], references: [id], onDelete: SetNull)
+  completions SubtaskCompletion[]
 
   @@index([taskId])
+}
+
+/// One row per assignee who ticked a subtask. A subtask counts as done only
+/// when every current assignee has a row here, so each person keeps their own
+/// check and everyone can see who checked what.
+model SubtaskCompletion {
+  subtaskId   String
+  userId      String
+  completedAt DateTime @default(now())
+
+  subtask Subtask @relation(fields: [subtaskId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([subtaskId, userId])
+  @@index([userId])
 }
 
 model TaskAssignee {

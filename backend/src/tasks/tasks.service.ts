@@ -448,6 +448,9 @@ export class TasksService {
                     data: requestedAssigneeIds.map((userId) => ({ taskId: id, userId })),
                     skipDuplicates: true,
                 });
+                // A subtask is "done" only when every assignee ticked it, so a
+                // changed assignee list changes the answer.
+                await this.syncSubtasksDone(tx, id);
             }
             const nextAssigneeIds =
                 requestedAssigneeIds ?? before.assignees.map((assignee) => assignee.userId);
@@ -816,6 +819,12 @@ export class TasksService {
                     },
                 });
             }
+            if (patch.addAssigneeIds?.length || patch.removeAssigneeIds?.length) {
+                for (const taskId of taskIds) {
+                    await this.syncSubtasksDone(tx, taskId);
+                    await this.recomputeProgress(tx, taskId);
+                }
+            }
             await tx.taskActivity.createMany({
                 data: taskIds.map((taskId) => ({
                     workspaceId: m.workspaceId,
@@ -937,44 +946,165 @@ export class TasksService {
         });
     }
 
+    /**
+     * Every person ticks a subtask for themselves only — a tick never appears
+     * checked for anyone else. The subtask is marked done once every assignee
+     * has ticked it; ticks from people who are not assignees are kept for the
+     * "who checked" list but do not count towards that.
+     */
     async toggleSubtask(m: Membership, taskId: string, subtaskId: string, raw: unknown) {
         const { done } = SubtaskToggleSchema.parse(raw);
         // assertCanWrite gates: 404 for non-assignee non-leader, 403 for non-leader
         // on archived tasks, and it returns the task with assignees loaded.
-        const task = await this.access.assertCanWrite(taskId, m);
-        if (m.role !== 'LEADER' && !task.assignees.some((a) => a.userId === m.userId)) {
+        const task = await this.access.loadLightForWrite(taskId, m);
+        const assigneeIds = task.assignees.map((assignee) => assignee.userId);
+        if (m.role !== 'LEADER' && !assigneeIds.includes(m.userId)) {
             throw new NotFoundException('Task not found');
         }
 
-        return this.prisma.$transaction(async (tx) => {
-            const subtask = await tx.subtask.findFirst({
-                where: { id: subtaskId, taskId },
-            });
-            if (!subtask) throw new NotFoundException('Subtask not found');
+        // No interactive transaction here on purpose: against a remote database
+        // BEGIN/COMMIT costs two extra round trips and every tick felt slow. The
+        // writes are idempotent and the derived `done` flag is recomputed
+        // whenever the assignee list changes, so a partial failure is benign.
+        const tx = this.prisma;
+        {
+            // Write the tick and read back the resulting list in one query:
+            // this runs against a remote database, so round trips are expensive.
+            let subtask: {
+                id: string;
+                label: string;
+                done: boolean;
+                completions: {
+                    userId: string;
+                    completedAt: Date;
+                    user: { id: string; name: string; avatarUrl: string | null };
+                }[];
+            };
+            try {
+                subtask = await tx.subtask.update({
+                    where: { id: subtaskId, taskId },
+                    data: done
+                        ? {
+                              completions: {
+                                  createMany: {
+                                      data: [{ userId: m.userId }],
+                                      skipDuplicates: true,
+                                  },
+                              },
+                          }
+                        : { completions: { deleteMany: { userId: m.userId } } },
+                    select: {
+                        id: true,
+                        label: true,
+                        done: true,
+                        completions: {
+                            orderBy: { completedAt: 'asc' },
+                            include: {
+                                user: { select: { id: true, name: true, avatarUrl: true } },
+                            },
+                        },
+                    },
+                });
+            } catch {
+                throw new NotFoundException('Subtask not found');
+            }
+
+            const assigneeTicks = subtask.completions.filter((entry) =>
+                assigneeIds.includes(entry.userId),
+            );
+            const doneNow =
+                assigneeIds.length === 0
+                    ? subtask.completions.length > 0
+                    : assigneeIds.every((userId) =>
+                          assigneeTicks.some((entry) => entry.userId === userId),
+                      );
+            const last = assigneeTicks.at(-1);
 
             const updated = await tx.subtask.update({
                 where: { id: subtaskId },
                 data: {
-                    done,
-                    doneById: done ? m.userId : null,
-                    doneAt: done ? new Date() : null,
+                    done: doneNow,
+                    doneById: doneNow ? (last?.userId ?? m.userId) : null,
+                    doneAt: doneNow ? (last?.completedAt ?? new Date()) : null,
                 },
-            });
-            const progress = await this.recomputeProgress(tx, taskId);
-
-            await tx.taskActivity.create({
-                data: {
-                    workspaceId: m.workspaceId,
-                    taskId,
-                    actorId: m.userId,
-                    type: 'UPDATED',
-                    summary: `${done ? 'checked' : 'unchecked'} subtask “${subtask.label}”`,
-                    metadata: { subtaskId, done, progress },
-                },
+                include: { doneBy: { select: { id: true, name: true } } },
             });
 
-            return { subtask: updated, progress };
+            // Progress only moves when the derived flag flips.
+            const progress =
+                doneNow === subtask.done
+                    ? task.progress
+                    : await this.recomputeProgress(tx, taskId);
+
+            // Activity logging must not delay the checkbox: fire and forget.
+            void tx.taskActivity
+                .create({
+                    data: {
+                        workspaceId: m.workspaceId,
+                        taskId,
+                        actorId: m.userId,
+                        type: 'UPDATED',
+                        summary: `${done ? 'checked' : 'unchecked'} subtask “${subtask.label}”`,
+                        metadata: { subtaskId, done, progress },
+                    },
+                })
+                .catch(() => undefined);
+
+            return { subtask: { ...updated, completions: subtask.completions }, progress };
+        }
+    }
+
+    /** Recompute the derived `done` flag for one subtask from its ticks. */
+    private async syncSubtaskDone(tx: Prisma.TransactionClient, subtaskId: string) {
+        const subtask = await tx.subtask.findUnique({
+            where: { id: subtaskId },
+            select: { id: true, taskId: true },
         });
+        if (!subtask) return;
+
+        const [assignees, completions] = await Promise.all([
+            tx.taskAssignee.findMany({
+                where: { taskId: subtask.taskId },
+                select: { userId: true },
+            }),
+            tx.subtaskCompletion.findMany({
+                where: { subtaskId },
+                orderBy: { completedAt: 'asc' },
+                select: { userId: true, completedAt: true },
+            }),
+        ]);
+
+        const assigneeIds = assignees.map((assignee) => assignee.userId);
+        const tickedByAssignees = completions.filter((entry) =>
+            assigneeIds.includes(entry.userId),
+        );
+        const done =
+            assigneeIds.length === 0
+                ? completions.length > 0
+                : assigneeIds.every((userId) =>
+                      tickedByAssignees.some((entry) => entry.userId === userId),
+                  );
+        const last = done ? tickedByAssignees.at(-1) ?? completions.at(-1) : undefined;
+
+        await tx.subtask.update({
+            where: { id: subtaskId },
+            data: {
+                done,
+                doneById: done ? (last?.userId ?? null) : null,
+                doneAt: done ? (last?.completedAt ?? new Date()) : null,
+            },
+        });
+    }
+
+    /** Recompute every subtask of a task (after its assignee list changed). */
+    private async syncSubtasksDone(tx: Prisma.TransactionClient, taskId: string) {
+        const subtasks = await tx.subtask.findMany({
+            where: { taskId },
+            select: { id: true },
+        });
+        for (const subtask of subtasks) {
+            await this.syncSubtaskDone(tx, subtask.id);
+        }
     }
 
     // ---------------------------------------------------------------- comments
@@ -1106,14 +1236,25 @@ export class TasksService {
     // ---------------------------------------------------------------- helpers
 
     /** Spec §1: progress is round(checked / total × 100), or 0 with no subtasks. */
-    private async recomputeProgress(tx: Prisma.TransactionClient, taskId: string) {
-        const [total, checked] = await Promise.all([
-            tx.subtask.count({ where: { taskId } }),
-            tx.subtask.count({ where: { taskId, done: true } }),
-        ]);
-        const progress = total === 0 ? 0 : Math.round((checked / total) * 100);
-        await tx.task.update({ where: { id: taskId }, data: { progress } });
-        return progress;
+    private async recomputeProgress(
+        db: Prisma.TransactionClient | PrismaService,
+        taskId: string,
+    ) {
+        // Single statement instead of read-then-write: the API talks to a remote
+        // database, so every extra round trip is felt in the UI.
+        const rows = await db.$queryRaw<{ progress: number }[]>`
+            UPDATE "Task" t
+            SET progress = COALESCE(
+                (
+                    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE s.done) / NULLIF(COUNT(*), 0))
+                    FROM "Subtask" s
+                    WHERE s."taskId" = t.id
+                ),
+                0
+            )::int
+            WHERE t.id = ${taskId}
+            RETURNING t.progress`;
+        return rows[0]?.progress ?? 0;
     }
 
     private assertStatusCanAdvance(
