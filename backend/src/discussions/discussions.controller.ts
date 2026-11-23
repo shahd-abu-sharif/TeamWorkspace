@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import {
+    Body,
+    Controller,
+    Delete,
+    Get,
+    Param,
+    Patch,
+    Post,
+    Query,
+    UploadedFile,
+    UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentMembership } from '../common/decorators';
 import type { Membership } from '../common/decorators';
 import { ZodBody, ZodQuery } from '../common/zod-validation.pipe';
@@ -76,5 +88,43 @@ export class DiscussionsController {
         @Param('replyId') replyId: string,
     ) {
         return this.discussions.removeReply(m, id, replyId);
+    }
+
+    // ------------------------------------------------------------- attachments
+
+    @Post(':id/attachments')
+    @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
+    uploadAttachment(
+        @CurrentMembership() m: Membership,
+        @Param('id') id: string,
+        @UploadedFile() file: any,
+    ) {
+        return this.discussions.addAttachment(m, id, file);
+    }
+
+    @Post('replies/:replyId/attachments')
+    @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
+    uploadReplyAttachment(
+        @CurrentMembership() m: Membership,
+        @Param('replyId') replyId: string,
+        @UploadedFile() file: any,
+    ) {
+        return this.discussions.addReplyAttachment(m, replyId, file);
+    }
+
+    @Get('attachments/:attachmentId/download')
+    downloadAttachment(
+        @CurrentMembership() m: Membership,
+        @Param('attachmentId') attachmentId: string,
+    ) {
+        return this.discussions.attachmentDownload(m, attachmentId);
+    }
+
+    @Delete('attachments/:attachmentId')
+    removeAttachment(
+        @CurrentMembership() m: Membership,
+        @Param('attachmentId') attachmentId: string,
+    ) {
+        return this.discussions.removeAttachment(m, attachmentId);
     }
 }

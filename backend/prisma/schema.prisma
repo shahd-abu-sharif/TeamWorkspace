@@ -141,6 +141,7 @@ model User {
   createdEpics         Epic[]                  @relation("EpicCreator")
   discussions          TeamDiscussion[]        @relation("DiscussionAuthor")
   discussionReplies    TeamDiscussionReply[]   @relation("DiscussionReplyAuthor")
+  discussionUploads    DiscussionAttachment[]
 
   @@index([email])
 }
@@ -322,10 +323,11 @@ model TeamDiscussion {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  workspace Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  team      Team                  @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  author    User                  @relation("DiscussionAuthor", fields: [authorId], references: [id], onDelete: Cascade)
-  replies   TeamDiscussionReply[]
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  team        Team                   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  author      User                   @relation("DiscussionAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  replies     TeamDiscussionReply[]
+  attachments DiscussionAttachment[]
 
   @@index([teamId, createdAt])
   @@index([workspaceId, status])
@@ -338,10 +340,31 @@ model TeamDiscussionReply {
   body         String
   createdAt    DateTime @default(now())
 
-  discussion TeamDiscussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
-  author     User           @relation("DiscussionReplyAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  discussion  TeamDiscussion         @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  author      User                   @relation("DiscussionReplyAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  attachments DiscussionAttachment[]
 
   @@index([discussionId, createdAt])
+}
+
+/// Files on a post or on a single reply (spreadsheets, screenshots, PDFs).
+model DiscussionAttachment {
+  id           String   @id @default(cuid())
+  discussionId String
+  replyId      String?
+  uploadedById String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  storageKey   String
+  createdAt    DateTime @default(now())
+
+  discussion TeamDiscussion       @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  reply      TeamDiscussionReply? @relation(fields: [replyId], references: [id], onDelete: Cascade)
+  uploader   User                 @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+
+  @@index([discussionId])
+  @@index([replyId])
 }
 
 /// An epic can be owned by several teams; its tasks may then be assigned to
