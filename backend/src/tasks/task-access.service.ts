@@ -76,6 +76,32 @@ export class TaskAccessService {
     }
 
     /**
+     * Lightweight gate for hot write paths (e.g. ticking a subtask): reads only
+     * what the caller needs instead of the whole task graph.
+     */
+    async loadLightForWrite(taskId: string, m: Membership) {
+        const task = await this.prisma.task.findFirst({
+            where: { id: taskId, workspaceId: m.workspaceId },
+            select: {
+                id: true,
+                progress: true,
+                isArchived: true,
+                assignees: { select: { userId: true } },
+            },
+        });
+        if (!task) throw new NotFoundException('Task not found');
+        if (m.role !== 'LEADER') {
+            if (!task.assignees.some((assignee) => assignee.userId === m.userId)) {
+                throw new NotFoundException('Task not found');
+            }
+            if (task.isArchived) {
+                throw new ForbiddenException('Archived tasks can only be edited by the team leader');
+            }
+        }
+        return task;
+    }
+
+    /**
      * Convenience alias kept for code paths that only need the visibility
      * gate (e.g. timer endpoints).
      */

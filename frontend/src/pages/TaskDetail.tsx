@@ -101,10 +101,58 @@ export function TaskDetailPage() {
         onError: () => setStatusValue(task?.status ?? ''),
     });
 
+    // Ticking a subtask must feel instant: the box flips optimistically and the
+    // server's answer is merged back, instead of refetching the whole task.
     const toggleSubtask = useMutation({
         mutationFn: (args: { subtaskId: string; done: boolean }) =>
-            apiClient.post(`/tasks/${id}/subtasks/${args.subtaskId}/toggle`, { done: args.done }),
-        onSuccess: invalidate,
+            apiClient.post<any>(`/tasks/${id}/subtasks/${args.subtaskId}/toggle`, { done: args.done }),
+        onMutate: async (args) => {
+            await qc.cancelQueries({ queryKey: ['task', id] });
+            const snapshot = qc.getQueryData<any>(['task', id]);
+            qc.setQueryData<any>(['task', id], (current: any) => {
+                if (!current) return current;
+                return {
+                    ...current,
+                    subtasks: (current.subtasks ?? []).map((subtask: any) => {
+                        if (subtask.id !== args.subtaskId) return subtask;
+                        const others = (subtask.completions ?? []).filter(
+                            (entry: any) => entry.userId !== user?.id,
+                        );
+                        return {
+                            ...subtask,
+                            completions: args.done
+                                ? [
+                                      ...others,
+                                      {
+                                          userId: user?.id,
+                                          completedAt: new Date().toISOString(),
+                                          user: { id: user?.id, name: user?.name ?? '', avatarUrl: user?.avatarUrl ?? null },
+                                      },
+                                  ]
+                                : others,
+                        };
+                    }),
+                };
+            });
+            return { snapshot };
+        },
+        onError: (_error, _args, context) => {
+            if (context?.snapshot) qc.setQueryData(['task', id], context.snapshot);
+        },
+        onSuccess: (result) => {
+            qc.setQueryData<any>(['task', id], (current: any) => {
+                if (!current) return current;
+                return {
+                    ...current,
+                    progress: result.progress,
+                    subtasks: (current.subtasks ?? []).map((subtask: any) =>
+                        subtask.id === result.subtask.id
+                            ? { ...subtask, ...result.subtask }
+                            : subtask,
+                    ),
+                };
+            });
+        },
     });
 
     const addSubtask = useMutation({
@@ -164,14 +212,17 @@ export function TaskDetailPage() {
 
     // ── Derived data ───────────────────────────────────────────────────────
     const totalSubtasks = task.subtasks?.length ?? 0;
-    const checkedSubtasks = (task.subtasks ?? []).filter((s: any) => s.done).length;
-    // Subtasks are ticked per assignee: the box reflects *my* tick, the avatars
-    // show who else has ticked, and `done` flips only when everyone has.
+    // Subtasks are ticked per assignee: the box, the strike-through and the
+    // counter all reflect *my* progress, while the avatars show who checked.
     const taskAssigneeIds: string[] = (task.assignees ?? []).map((a: any) => a.user.id);
+    const iAmAssignee = taskAssigneeIds.includes(user?.id ?? '');
     const myTick = (subtask: any) =>
         (subtask.completions ?? []).some((c: any) => c.userId === user?.id);
     const isSubtaskChecked = (subtask: any) =>
         taskAssigneeIds.length > 0 ? myTick(subtask) : Boolean(subtask.done);
+    const checkedSubtasks = (task.subtasks ?? []).filter((s: any) =>
+        iAmAssignee ? myTick(s) : Boolean(s.done),
+    ).length;
     // Only assignees count towards "n/m"; a leader's own tick is informational.
     const assigneeTicks = (subtask: any) =>
         (subtask.completions ?? []).filter((c: any) => taskAssigneeIds.includes(c.userId));
@@ -321,7 +372,7 @@ export function TaskDetailPage() {
                                             aria-label={`Mark “${s.label}” done for me`}
                                         />
                                         <span
-                                            className={`min-w-0 flex-1 text-sm ${s.done ? 'line-through text-slate-400' : ''
+                                            className={`min-w-0 flex-1 text-sm ${isSubtaskChecked(s) ? 'text-slate-400 line-through' : ''
                                                 }`}
                                         >
                                             {s.label}

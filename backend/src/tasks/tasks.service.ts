@@ -956,57 +956,102 @@ export class TasksService {
         const { done } = SubtaskToggleSchema.parse(raw);
         // assertCanWrite gates: 404 for non-assignee non-leader, 403 for non-leader
         // on archived tasks, and it returns the task with assignees loaded.
-        const task = await this.access.assertCanWrite(taskId, m);
+        const task = await this.access.loadLightForWrite(taskId, m);
         const assigneeIds = task.assignees.map((assignee) => assignee.userId);
         if (m.role !== 'LEADER' && !assigneeIds.includes(m.userId)) {
             throw new NotFoundException('Task not found');
         }
 
-        return this.prisma.$transaction(async (tx) => {
-            const subtask = await tx.subtask.findFirst({
-                where: { id: subtaskId, taskId },
-            });
-            if (!subtask) throw new NotFoundException('Subtask not found');
-
-            if (done) {
-                await tx.subtaskCompletion.upsert({
-                    where: { subtaskId_userId: { subtaskId, userId: m.userId } },
-                    create: { subtaskId, userId: m.userId },
-                    update: {},
+        // No interactive transaction here on purpose: against a remote database
+        // BEGIN/COMMIT costs two extra round trips and every tick felt slow. The
+        // writes are idempotent and the derived `done` flag is recomputed
+        // whenever the assignee list changes, so a partial failure is benign.
+        const tx = this.prisma;
+        {
+            // Write the tick and read back the resulting list in one query:
+            // this runs against a remote database, so round trips are expensive.
+            let subtask: {
+                id: string;
+                label: string;
+                done: boolean;
+                completions: {
+                    userId: string;
+                    completedAt: Date;
+                    user: { id: string; name: string; avatarUrl: string | null };
+                }[];
+            };
+            try {
+                subtask = await tx.subtask.update({
+                    where: { id: subtaskId, taskId },
+                    data: done
+                        ? {
+                              completions: {
+                                  createMany: {
+                                      data: [{ userId: m.userId }],
+                                      skipDuplicates: true,
+                                  },
+                              },
+                          }
+                        : { completions: { deleteMany: { userId: m.userId } } },
+                    select: {
+                        id: true,
+                        label: true,
+                        done: true,
+                        completions: {
+                            orderBy: { completedAt: 'asc' },
+                            include: {
+                                user: { select: { id: true, name: true, avatarUrl: true } },
+                            },
+                        },
+                    },
                 });
-            } else {
-                await tx.subtaskCompletion.deleteMany({
-                    where: { subtaskId, userId: m.userId },
-                });
+            } catch {
+                throw new NotFoundException('Subtask not found');
             }
 
-            await this.syncSubtaskDone(tx, subtaskId);
-            const progress = await this.recomputeProgress(tx, taskId);
+            const assigneeTicks = subtask.completions.filter((entry) =>
+                assigneeIds.includes(entry.userId),
+            );
+            const doneNow =
+                assigneeIds.length === 0
+                    ? subtask.completions.length > 0
+                    : assigneeIds.every((userId) =>
+                          assigneeTicks.some((entry) => entry.userId === userId),
+                      );
+            const last = assigneeTicks.at(-1);
 
-            const updated = await tx.subtask.findUniqueOrThrow({
+            const updated = await tx.subtask.update({
                 where: { id: subtaskId },
-                include: {
-                    doneBy: { select: { id: true, name: true } },
-                    completions: {
-                        orderBy: { completedAt: 'asc' },
-                        include: { user: { select: { id: true, name: true, avatarUrl: true } } },
-                    },
-                },
-            });
-
-            await tx.taskActivity.create({
                 data: {
-                    workspaceId: m.workspaceId,
-                    taskId,
-                    actorId: m.userId,
-                    type: 'UPDATED',
-                    summary: `${done ? 'checked' : 'unchecked'} subtask “${subtask.label}”`,
-                    metadata: { subtaskId, done, progress },
+                    done: doneNow,
+                    doneById: doneNow ? (last?.userId ?? m.userId) : null,
+                    doneAt: doneNow ? (last?.completedAt ?? new Date()) : null,
                 },
+                include: { doneBy: { select: { id: true, name: true } } },
             });
 
-            return { subtask: updated, progress };
-        });
+            // Progress only moves when the derived flag flips.
+            const progress =
+                doneNow === subtask.done
+                    ? task.progress
+                    : await this.recomputeProgress(tx, taskId);
+
+            // Activity logging must not delay the checkbox: fire and forget.
+            void tx.taskActivity
+                .create({
+                    data: {
+                        workspaceId: m.workspaceId,
+                        taskId,
+                        actorId: m.userId,
+                        type: 'UPDATED',
+                        summary: `${done ? 'checked' : 'unchecked'} subtask “${subtask.label}”`,
+                        metadata: { subtaskId, done, progress },
+                    },
+                })
+                .catch(() => undefined);
+
+            return { subtask: { ...updated, completions: subtask.completions }, progress };
+        }
     }
 
     /** Recompute the derived `done` flag for one subtask from its ticks. */
@@ -1191,14 +1236,25 @@ export class TasksService {
     // ---------------------------------------------------------------- helpers
 
     /** Spec §1: progress is round(checked / total × 100), or 0 with no subtasks. */
-    private async recomputeProgress(tx: Prisma.TransactionClient, taskId: string) {
-        const [total, checked] = await Promise.all([
-            tx.subtask.count({ where: { taskId } }),
-            tx.subtask.count({ where: { taskId, done: true } }),
-        ]);
-        const progress = total === 0 ? 0 : Math.round((checked / total) * 100);
-        await tx.task.update({ where: { id: taskId }, data: { progress } });
-        return progress;
+    private async recomputeProgress(
+        db: Prisma.TransactionClient | PrismaService,
+        taskId: string,
+    ) {
+        // Single statement instead of read-then-write: the API talks to a remote
+        // database, so every extra round trip is felt in the UI.
+        const rows = await db.$queryRaw<{ progress: number }[]>`
+            UPDATE "Task" t
+            SET progress = COALESCE(
+                (
+                    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE s.done) / NULLIF(COUNT(*), 0))
+                    FROM "Subtask" s
+                    WHERE s."taskId" = t.id
+                ),
+                0
+            )::int
+            WHERE t.id = ${taskId}
+            RETURNING t.progress`;
+        return rows[0]?.progress ?? 0;
     }
 
     private assertStatusCanAdvance(
