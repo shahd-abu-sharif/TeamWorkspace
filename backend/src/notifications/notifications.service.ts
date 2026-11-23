@@ -330,7 +330,9 @@ export class NotificationsService {
 
     async list(userId: string, opts: { unreadOnly?: boolean; page: number; pageSize: number }) {
         const where = { userId, ...(opts.unreadOnly ? { readAt: null } : {}) };
-        const [items, total, unread] = await this.prisma.$transaction([
+        // Read-only: Promise.all avoids opening a transaction just to run
+        // three SELECTs (transaction slots are scarce behind a pooler).
+        const [items, total, unread] = await Promise.all([
             this.prisma.notification.findMany({
                 where,
                 orderBy: { createdAt: 'desc' },

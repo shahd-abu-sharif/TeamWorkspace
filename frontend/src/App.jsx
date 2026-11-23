@@ -17,6 +17,8 @@ import { ImportWizard } from './pages/ImportWizard.tsx';
 import { CalendarPage } from './pages/Calendar.tsx';
 import { TeamPage } from './pages/Team.tsx';
 import { ReportsPage } from './pages/Reports.tsx';
+import { EpicDetailPage, EpicsPage } from './pages/Epics.tsx';
+import { TeamDetailPage, TeamsPage } from './pages/Teams.tsx';
 import { ChatPage } from './pages/Chat.tsx';
 import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordRecovery.tsx';
 const queryClient = new QueryClient({
@@ -79,6 +81,10 @@ function ProtectedRoutes() {
         <Route path="import" element={role === 'LEADER' ? <ImportWizard /> : <Navigate to="/" replace />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="reports" element={role === 'LEADER' ? <ReportsPage /> : <Navigate to="/" replace />} />
+        <Route path="epics" element={<EpicsPage />} />
+        <Route path="epics/:id" element={<EpicDetailPage />} />
+        <Route path="teams" element={<TeamsPage />} />
+        <Route path="teams/:id" element={<TeamDetailPage />} />
         <Route path="chat" element={<ChatPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

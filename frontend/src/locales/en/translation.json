@@ -17,7 +17,9 @@
         "import": "Import",
         "chat": "Team chat",
         "workspace": "Workspace",
-        "personal": "Personal"
+        "personal": "Personal",
+        "epics": "Epics",
+        "teams": "Teams"
     },
     "auth": {
         "signIn": "Sign in",
@@ -124,7 +126,11 @@
         "createError": "Could not create the task",
         "none": "— none —",
         "commaSeparated": "Comma separated",
-        "tagsPlaceholder": "api, backend"
+        "tagsPlaceholder": "api, backend",
+        "showing": "{{count}} tasks",
+        "epicHint": "Optional grouping. A team-owned epic limits assignees to that team.",
+        "assigneesMustBeTeamMembers": "Assignees must be members of {{team}}.",
+        "assigneesFromTeam": "Team {{team}} owns this epic — showing its {{count}} member(s). Only these people can be assigned."
     },
     "priority": {
         "URGENT": "Urgent",
@@ -206,7 +212,12 @@
         "pendingInvitations": "Invitations",
         "noInvitations": "There are no invitations yet.",
         "revoke": "Revoke",
-        "status": { "PENDING": "Pending", "ACCEPTED": "Accepted", "EXPIRED": "Expired", "REVOKED": "Revoked" }
+        "status": {
+            "PENDING": "Pending",
+            "ACCEPTED": "Accepted",
+            "EXPIRED": "Expired",
+            "REVOKED": "Revoked"
+        }
     },
     "calendar": {
         "subtitle": "Tasks arranged by their deadline.",
@@ -268,7 +279,10 @@
         "none": "None",
         "save": "Save",
         "cancel": "Cancel",
-        "backToLogin": "Back to sign in"
+        "backToLogin": "Back to sign in",
+        "edit": "Edit",
+        "delete": "Delete",
+        "saving": "Saving…"
     },
     "import": {
         "title": "Import Tasks",
@@ -323,5 +337,81 @@
         "fieldWorkstream": "Workstream / category",
         "fieldDependencies": "Dependencies",
         "fieldTags": "Tags"
+    },
+    "epics": {
+        "title": "Epics",
+        "subtitle": "Group related tasks under a larger goal. Each epic belongs to at most one team.",
+        "new": "New epic",
+        "edit": "Edit epic",
+        "filters": {
+            "all": "All epics",
+            "noTeam": "No team"
+        },
+        "empty": "No epics yet. Create one to group tasks under a shared goal.",
+        "noTeam": "No team",
+        "progress": "{{open}} open · {{total}} tasks",
+        "progressLabel": "Progress",
+        "types": {
+            "uiux": "UI/UX",
+            "frontend": "Frontend",
+            "backend": "Backend",
+            "mobile": "Mobile",
+            "other": "Other"
+        },
+        "notFound": "Epic not found",
+        "back": "Back to epics",
+        "deleteConfirm": "Delete “{{title}}”? Its tasks are kept and become ungrouped.",
+        "deleted": "Epic deleted. {{count}} task(s) were detached.",
+        "description": "Description",
+        "noDescription": "No description.",
+        "startDate": "Start date",
+        "dueDate": "Due date",
+        "tasks": "Tasks",
+        "noTasks": "No tasks in this epic yet. Assign a task to it from the task editor.",
+        "unassigned": "Unassigned",
+        "subtasks": "subtasks",
+        "form": {
+            "title": "Title",
+            "description": "Description",
+            "team": "Team",
+            "status": "Status",
+            "priority": "Priority"
+        },
+        "noEpic": "No epic"
+    },
+    "teams": {
+        "title": "Teams",
+        "subtitle": "Discipline-based groups. A task in a team’s epic can only be assigned to that team’s members.",
+        "new": "New team",
+        "edit": "Edit team",
+        "empty": "No teams yet. Create one to group people and epics.",
+        "memberCount": "{{count}} members",
+        "epicCount": "{{count}} epics",
+        "openTasks": "{{count}} open tasks",
+        "notFound": "Team not found",
+        "back": "Back to teams",
+        "deleted": "Team deleted. {{count}} epic(s) became team-less; their tasks are unchanged.",
+        "deleteConfirm": "Delete “{{name}}”? Its epics and tasks are kept and become team-less.",
+        "members": "Members",
+        "noMembers": "No members yet.",
+        "lead": "Lead",
+        "member": "Member",
+        "workloadRow": "{{open}} open · {{hours}}h estimated",
+        "removeMember": "Remove {{name}} from this team",
+        "addMember": "Add member",
+        "chooseMember": "Choose a person…",
+        "role": "Team role",
+        "add": "Add",
+        "unassignedWarning": "{{count}} open task(s) in this team’s epics have no assignee.",
+        "epics": "Epics",
+        "noEpics": "This team has no epics yet.",
+        "form": {
+            "members": "Members",
+            "membersHint": "Pick existing people from this workspace",
+            "searchMembers": "Search by name or email…",
+            "noUsers": "No matching people.",
+            "selectedCount": "{{count}} selected"
+        },
+        "you": "you"
     }
 }

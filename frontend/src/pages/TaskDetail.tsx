@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { epicCode, epicLabel } from '../lib/epic-key';
 import { btnPrimary, btnSecondary, btnDanger, input, Field } from '../components/QuickCreateTask';
 import { ErrorState, PriorityDot, StatusBadge } from './Dashboard';
 import {
@@ -59,6 +60,11 @@ export function TaskDetailPage() {
     const { data: workstreams } = useQuery({
         queryKey: ['workstreams'],
         queryFn: () => apiClient.get<any[]>('/workstreams'),
+        enabled: canEditAll && editOpen,
+    });
+    const { data: epics } = useQuery({
+        queryKey: ['epics'],
+        queryFn: () => apiClient.get<any[]>('/epics'),
         enabled: canEditAll && editOpen,
     });
 
@@ -253,6 +259,12 @@ export function TaskDetailPage() {
                     </div>
                 )}
             </header>
+
+            {patch.isError && (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+                    {(patch.error as Error).message}
+                </p>
+            )}
 
             <div className="grid gap-6 lg:grid-cols-3">
                 {/* ─────────────────────── Main column ─────────────────────── */}
@@ -623,6 +635,21 @@ export function TaskDetailPage() {
                                 </dd>
                             </div>
                             <div>
+                                <dt className="text-slate-500">Epic</dt>
+                                <dd>
+                                    {task.epic ? (
+                                        <Link
+                                            to={`/epics/${task.epic.id}`}
+                                            className="text-[#2563EB] hover:underline"
+                                        >
+                                            {epicCode(task.epic)} · {task.epic.title}
+                                        </Link>
+                                    ) : (
+                                        <span className="text-slate-400">—</span>
+                                    )}
+                                </dd>
+                            </div>
+                            <div>
                                 <dt className="text-slate-500">Start date</dt>
                                 <dd>{task.startDate ? new Date(task.startDate).toLocaleDateString() : '—'}</dd>
                             </div>
@@ -743,6 +770,7 @@ export function TaskDetailPage() {
                     task={task}
                     members={members ?? []}
                     workstreams={workstreams ?? []}
+                    epics={epics ?? []}
                     onClose={() => setEditOpen(false)}
                     onSave={(payload) => patch.mutate(payload, { onSuccess: () => setEditOpen(false) })}
                     isSaving={patch.isPending}
@@ -760,6 +788,7 @@ function EditTaskModal({
     task,
     members,
     workstreams,
+    epics,
     onClose,
     onSave,
     isSaving,
@@ -767,6 +796,7 @@ function EditTaskModal({
     task: any;
     members: any[];
     workstreams: any[];
+    epics: any[];
     onClose: () => void;
     onSave: (payload: Record<string, unknown>) => void;
     isSaving: boolean;
@@ -779,6 +809,7 @@ function EditTaskModal({
         dueDate: task.dueDate ? task.dueDate.slice(0, 10) : '',
         estimatedHrs: task.estimatedHrs ?? '',
         workstreamId: task.workstreamId ?? '',
+        epicId: task.epicId ?? '',
         tagNames: (task.tags ?? []).map((t: any) => t.tag.name).join(', '),
         links: (task.links ?? []).join(', '),
         assigneeIds: (task.assignees ?? []).map((a: any) => a.user.id),
@@ -787,6 +818,30 @@ function EditTaskModal({
 
     const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
         setForm((prev) => ({ ...prev, [key]: value }));
+
+    // A team-owned epic limits assignees to that team's members (API enforces 422).
+    const selectedEpic = epics.find((epic: any) => epic.id === form.epicId);
+    const epicTeamId = selectedEpic?.team?.id as string | undefined;
+    const { data: epicTeam } = useQuery({
+        queryKey: ['team', epicTeamId],
+        queryFn: () => apiClient.get<any>(`/teams/${epicTeamId}`),
+        enabled: Boolean(epicTeamId),
+    });
+    const allowedIds = new Set<string>(
+        ((epicTeam?.members ?? []) as any[]).map((member) => member.userId),
+    );
+    const assignableMembers = selectedEpic?.team
+        ? members.filter((member: any) => allowedIds.has(member.user.id))
+        : members;
+
+    useEffect(() => {
+        if (!selectedEpic?.team || !epicTeam) return;
+        setForm((prev) => {
+            const next = prev.assigneeIds.filter((assigneeId: string) => allowedIds.has(assigneeId));
+            return next.length === prev.assigneeIds.length ? prev : { ...prev, assigneeIds: next };
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [epicTeam, form.epicId]);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -801,6 +856,7 @@ function EditTaskModal({
                     ? null
                     : Number(form.estimatedHrs),
             workstreamId: form.workstreamId || null,
+            epicId: form.epicId || null,
             tagNames: form.tagNames.split(',').map((s) => s.trim()).filter(Boolean),
             links: form.links.split(',').map((s) => s.trim()).filter(Boolean),
             assigneeIds: form.assigneeIds,
@@ -864,6 +920,27 @@ function EditTaskModal({
                                 ))}
                             </select>
                         </Field>
+                        <Field
+                            label="Epic"
+                            hint={
+                                selectedEpic?.team
+                                    ? `Assignees must be members of ${selectedEpic.team.name}.`
+                                    : 'Optional grouping.'
+                            }
+                        >
+                            <select
+                                value={form.epicId}
+                                onChange={(e) => update('epicId', e.target.value)}
+                                className={input}
+                            >
+                                <option value="">— No epic —</option>
+                                {epics.map((epic: any) => (
+                                    <option key={epic.id} value={epic.id}>
+                                        {epicLabel(epic)}
+                                    </option>
+                                ))}
+                            </select>
+                        </Field>
                     </div>
 
                     <div className="grid gap-4 sm:grid-cols-3">
@@ -895,6 +972,13 @@ function EditTaskModal({
                         </Field>
                     </div>
 
+                    {selectedEpic?.team && (
+                        <p className="rounded-lg border border-[#2563EB]/25 bg-[#2563EB]/5 px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
+                            Team <strong>{selectedEpic.team.name}</strong> owns this epic — only its{' '}
+                            {assignableMembers.length} member(s) can be assigned.
+                        </p>
+                    )}
+
                     <Field label="Assignees" hint="Ctrl/Cmd-click for multi-select">
                         <select
                             multiple
@@ -907,7 +991,7 @@ function EditTaskModal({
                             }
                             className={`${input} h-32`}
                         >
-                            {members.map((m) => (
+                            {assignableMembers.map((m: any) => (
                                 <option key={m.user.id} value={m.user.id}>
                                     {m.user.name}
                                 </option>

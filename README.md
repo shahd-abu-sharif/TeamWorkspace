@@ -49,9 +49,11 @@ production.
 Deploy the API and web app as separate services from `main`, or deploy each
 focused branch if the hosting provider requires it. Provide a PostgreSQL
 database, configure the backend environment variables from
-`backend/.env.example`, run `npx prisma migrate deploy`, and set the frontend's
-`VITE_API_URL` to the public API URL before running `npm run build` in
-`frontend/`.
+`backend/.env.example`, and use `npm run start:prod` to start the API. The
+production start script applies pending Prisma migrations before starting Nest;
+the database must be reachable and `DATABASE_URL` must be configured. Set the
+frontend's `VITE_API_URL` to the public API URL before running `npm run build`
+in `frontend/`.
 
 Never commit `.env` files or production secrets. Use the `.env.example` files
 as templates and configure secrets in the hosting provider.

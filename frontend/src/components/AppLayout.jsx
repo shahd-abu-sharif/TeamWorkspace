@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   Bell, Calendar, ChartBar, ChevronDown, ChevronRight, Clock, FileText,
-  LayoutDashboard, ListChecks, Menu, MessageCircle, Plus, Search, Settings,
-  SlidersHorizontal, Users,
+  LayoutDashboard, Layers, ListChecks, Menu, MessageCircle, Plus, Search, Settings,
+  SlidersHorizontal, Users, UsersRound,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -22,10 +22,12 @@ const NAV_MAIN = [
   { to: '/timeline', labelKey: 'timeline', icon: Clock },
   { to: '/calendar', labelKey: 'calendar', icon: Calendar },
   { to: '/chat', labelKey: 'chat', icon: MessageCircle },
+  { to: '/epics', labelKey: 'epics', icon: Layers },
 ];
 
 const NAV_ADMIN = [
   { to: '/team', labelKey: 'team', icon: Users, leaderOnly: true },
+  { to: '/teams', labelKey: 'teams', icon: UsersRound },
   { to: '/reports', labelKey: 'reports', icon: ChartBar, leaderOnly: true },
   { to: '/import', labelKey: 'import', icon: FileText, leaderOnly: true },
 ];

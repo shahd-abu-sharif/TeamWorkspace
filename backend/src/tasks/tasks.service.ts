@@ -3,6 +3,7 @@ import {
     ForbiddenException,
     Injectable,
     NotFoundException,
+    UnprocessableEntityException,
 } from '@nestjs/common';
 import { ActivityType, Prisma, Priority, TaskStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,14 +24,7 @@ import {
 import { z } from 'zod';
 import { FilesService } from '../files/files.service';
 
-const STATUS_ORDER: TaskStatus[] = [
-    'BACKLOG',
-    'TODO',
-    'IN_PROGRESS',
-    'IN_REVIEW',
-    'BLOCKED',
-    'DONE',
-];
+const STATUS_ORDER: TaskStatus[] = ['BACKLOG', 'TODO', 'IN_PROGRESS', 'IN_REVIEW', 'BLOCKED', 'DONE'];
 
 @Injectable()
 export class TasksService {
@@ -39,7 +33,7 @@ export class TasksService {
         private access: TaskAccessService,
         private notifications: NotificationsService,
         private files: FilesService,
-    ) { }
+    ) {}
 
     // ---------------------------------------------------------------- queries
 
@@ -56,10 +50,7 @@ export class TasksService {
 
         if (query.mine) {
             const existingAnd = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
-            where.AND = [
-                ...existingAnd,
-                { assignees: { some: { userId: m.userId } } },
-            ];
+            where.AND = [...existingAnd, { assignees: { some: { userId: m.userId } } }];
         }
 
         if (query.q) {
@@ -77,6 +68,7 @@ export class TasksService {
         if (query.priority) where.priority = { in: asArray(query.priority) };
         if (query.assigneeId) where.assignees = { some: { userId: query.assigneeId } };
         if (query.workstreamId) where.workstreamId = query.workstreamId;
+        if (query.epicId) where.epicId = query.epicId;
         if (query.tag) where.tags = { some: { tag: { name: query.tag } } };
         if (query.unassigned) where.assignees = { none: {} };
         if (query.awaitingReview) where.status = 'IN_REVIEW';
@@ -95,9 +87,12 @@ export class TasksService {
         const orderBy: Prisma.TaskOrderByWithRelationInput =
             query.sort === 'priority'
                 ? { priority: query.order }
-                : ({ [query.sort]: query.order } as Prisma.TaskOrderByWithRelationInput);
+                : ({
+                      [query.sort]: query.order,
+                  } as Prisma.TaskOrderByWithRelationInput);
 
-        const [total, items] = await this.prisma.$transaction([
+        // Read-only: no transaction needed.
+        const [total, items] = await Promise.all([
             this.prisma.task.count({ where }),
             this.prisma.task.findMany({
                 where,
@@ -105,12 +100,31 @@ export class TasksService {
                 skip: (query.page - 1) * query.pageSize,
                 take: query.pageSize,
                 include: {
-                    assignees: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } },
-                    collaborators: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } },
+                    assignees: {
+                        include: {
+                            user: { select: { id: true, name: true, avatarUrl: true } },
+                        },
+                    },
+                    collaborators: {
+                        include: {
+                            user: { select: { id: true, name: true, avatarUrl: true } },
+                        },
+                    },
                     dependencies: { select: { dependsOn: { select: { id: true } } } },
                     workstream: { select: { id: true, name: true, color: true } },
+                    epic: {
+                        select: {
+                            id: true,
+                            reference: true,
+                            title: true,
+                            teamId: true,
+                            team: { select: { id: true, name: true } },
+                        },
+                    },
                     tags: { include: { tag: true } },
-                    _count: { select: { comments: true, attachments: true, dependencies: true } },
+                    _count: {
+                        select: { comments: true, attachments: true, dependencies: true },
+                    },
                 },
             }),
         ]);
@@ -124,14 +138,25 @@ export class TasksService {
                 workspaceId: m.workspaceId,
                 isArchived: false,
                 // Spec §2: non-leaders only see tasks where they are an assignee.
-                ...(m.role === 'LEADER'
-                    ? {}
-                    : { assignees: { some: { userId: m.userId } } }),
+                ...(m.role === 'LEADER' ? {} : { assignees: { some: { userId: m.userId } } }),
             },
             orderBy: [{ priority: 'asc' }, { dueDate: 'asc' }],
             include: {
-                assignees: { include: { user: { select: { id: true, name: true, avatarUrl: true } } } },
+                assignees: {
+                    include: {
+                        user: { select: { id: true, name: true, avatarUrl: true } },
+                    },
+                },
                 workstream: { select: { id: true, name: true, color: true } },
+                epic: {
+                    select: {
+                        id: true,
+                        reference: true,
+                        title: true,
+                        teamId: true,
+                        team: { select: { id: true, name: true } },
+                    },
+                },
                 tags: { include: { tag: true } },
             },
         });
@@ -153,7 +178,9 @@ export class TasksService {
             this.prisma.taskComment.findMany({
                 where: { taskId: id },
                 orderBy: { createdAt: 'asc' },
-                include: { author: { select: { id: true, name: true, avatarUrl: true } } },
+                include: {
+                    author: { select: { id: true, name: true, avatarUrl: true } },
+                },
             }),
             this.prisma.taskActivity.findMany({
                 where: { taskId: id },
@@ -258,7 +285,9 @@ export class TasksService {
             }
 
             // Recalculate actual hours across the whole task (existing behaviour).
-            const entries = await tx.taskTimeEntry.findMany({ where: { taskId: id } });
+            const entries = await tx.taskTimeEntry.findMany({
+                where: { taskId: id },
+            });
             const totalSeconds = entries.reduce((sum, entry) => {
                 const end = entry.endedAt ? entry.endedAt.getTime() : now.getTime();
                 return sum + Math.max(0, (end - entry.startedAt.getTime()) / 1000);
@@ -277,6 +306,7 @@ export class TasksService {
     async create(m: Membership, dto: CreateTaskDto) {
         this.access.assertLeader(m);
         await this.validateRelations(m.workspaceId, dto);
+        await this.assertAssigneesInEpicTeam(m.workspaceId, dto.epicId, dto.assigneeIds);
 
         const task = await this.prisma.$transaction(async (tx) => {
             const reference = await this.nextReference(tx, m.workspaceId);
@@ -288,6 +318,7 @@ export class TasksService {
                     title: dto.title,
                     description: dto.description,
                     workstreamId: dto.workstreamId ?? null,
+                    epicId: dto.epicId ?? null,
                     createdById: m.userId,
                     priority: dto.priority as Priority,
                     status: dto.status as TaskStatus,
@@ -300,8 +331,12 @@ export class TasksService {
                     completedAt: dto.status === 'DONE' ? new Date() : null,
                     links: dto.links,
                     assignees: { create: dto.assigneeIds.map((userId) => ({ userId })) },
-                    collaborators: { create: dto.collaboratorIds.map((userId) => ({ userId })) },
-                    tags: { create: await this.resolveTags(tx, m.workspaceId, dto.tagNames) },
+                    collaborators: {
+                        create: dto.collaboratorIds.map((userId) => ({ userId })),
+                    },
+                    tags: {
+                        create: await this.resolveTags(tx, m.workspaceId, dto.tagNames),
+                    },
                 },
             });
 
@@ -339,7 +374,11 @@ export class TasksService {
 
         await this.notifications.notifyAssignment(task.id, m.workspaceId, dto.assigneeIds, m.userId, false);
         await this.notifications.notifyTaskInvolvement(
-            task.id, m.workspaceId, dto.collaboratorIds, m.userId, 'Added to a task',
+            task.id,
+            m.workspaceId,
+            dto.collaboratorIds,
+            m.userId,
+            'Added to a task',
         );
         return this.findOne(m, task.id);
     }
@@ -348,10 +387,30 @@ export class TasksService {
         this.access.assertLeader(m);
         const before = await this.prisma.task.findFirstOrThrow({
             where: { id, workspaceId: m.workspaceId },
-            include: { assignees: true, collaborators: true, tags: { include: { tag: true } }, dependencies: true },
+            include: {
+                assignees: true,
+                collaborators: true,
+                tags: { include: { tag: true } },
+                dependencies: true,
+            },
         });
+        if (dto.assigneeIds !== undefined && dto.assigneeId !== undefined) {
+            throw new BadRequestException('Send either assigneeId or assigneeIds, not both');
+        }
         await this.validateRelations(m.workspaceId, dto);
         this.assertStatusCanAdvance(before, dto.status as TaskStatus | undefined);
+
+        // Single-assignee writes are projected onto the same TaskAssignee join
+        // table, so timers and time entries keep their existing behaviour.
+        const requestedAssigneeIds =
+            dto.assigneeId !== undefined ? (dto.assigneeId ? [dto.assigneeId] : []) : dto.assigneeIds;
+
+        const nextEpicId = dto.epicId !== undefined ? dto.epicId : before.epicId;
+        await this.assertAssigneesInEpicTeam(
+            m.workspaceId,
+            nextEpicId,
+            requestedAssigneeIds ?? before.assignees.map((assignee) => assignee.userId),
+        );
 
         const updated = await this.prisma.$transaction(async (tx) => {
             const nextStatus = dto.status as TaskStatus | undefined;
@@ -369,7 +428,12 @@ export class TasksService {
                 data.startedAt = new Date();
             }
             if (dto.workstreamId !== undefined) {
-                data.workstream = dto.workstreamId ? { connect: { id: dto.workstreamId } } : { disconnect: true };
+                data.workstream = dto.workstreamId
+                    ? { connect: { id: dto.workstreamId } }
+                    : { disconnect: true };
+            }
+            if (dto.epicId !== undefined) {
+                data.epic = dto.epicId ? { connect: { id: dto.epicId } } : { disconnect: true };
             }
             if (dto.status === 'DONE') {
                 data.completedAt = new Date();
@@ -380,14 +444,15 @@ export class TasksService {
 
             const task = await tx.task.update({ where: { id }, data });
 
-            if (dto.assigneeIds) {
+            if (requestedAssigneeIds) {
                 await tx.taskAssignee.deleteMany({ where: { taskId: id } });
                 await tx.taskAssignee.createMany({
-                    data: dto.assigneeIds.map((userId) => ({ taskId: id, userId })),
+                    data: requestedAssigneeIds.map((userId) => ({ taskId: id, userId })),
                     skipDuplicates: true,
                 });
             }
-            const nextAssigneeIds = dto.assigneeIds ?? before.assignees.map((assignee) => assignee.userId);
+            const nextAssigneeIds =
+                requestedAssigneeIds ?? before.assignees.map((assignee) => assignee.userId);
             await this.syncTimeEntries(
                 tx,
                 id,
@@ -396,8 +461,8 @@ export class TasksService {
                         ? nextAssigneeIds
                         : []
                     : nextStatus === 'IN_PROGRESS'
-                        ? nextAssigneeIds
-                        : [],
+                      ? nextAssigneeIds
+                      : [],
             );
             if (dto.collaboratorIds) {
                 await tx.taskCollaborator.deleteMany({ where: { taskId: id } });
@@ -440,15 +505,15 @@ export class TasksService {
         const relationsChanged =
             (dto.tagNames !== undefined &&
                 JSON.stringify([...dto.tagNames].sort()) !==
-                JSON.stringify(before.tags.map((item) => item.tag.name).sort())) ||
+                    JSON.stringify(before.tags.map((item) => item.tag.name).sort())) ||
             (dto.dependencyIds !== undefined &&
                 JSON.stringify([...dto.dependencyIds].sort()) !==
-                JSON.stringify(before.dependencies.map((dependency) => dependency.dependsOnId).sort()));
+                    JSON.stringify(before.dependencies.map((dependency) => dependency.dependsOnId).sort()));
         await this.notifications.handleTaskUpdated(before, updated, m.userId, relationsChanged);
-        if (dto.assigneeIds) {
+        if (requestedAssigneeIds) {
             const existingIds = new Set(before.assignees.map((assignee) => assignee.userId));
-            const removedIds = [...existingIds].filter((userId) => !dto.assigneeIds!.includes(userId));
-            const newlyAssigned = dto.assigneeIds.filter((userId) => !existingIds.has(userId));
+            const removedIds = [...existingIds].filter((userId) => !requestedAssigneeIds.includes(userId));
+            const newlyAssigned = requestedAssigneeIds.filter((userId) => !existingIds.has(userId));
             if (newlyAssigned.length) {
                 await this.notifications.notifyAssignment(id, m.workspaceId, newlyAssigned, m.userId, true);
             }
@@ -468,7 +533,13 @@ export class TasksService {
             const nextIds = new Set(dto.collaboratorIds);
             const added = [...nextIds].filter((userId) => !oldIds.has(userId));
             const removed = [...oldIds].filter((userId) => !nextIds.has(userId));
-            await this.notifications.notifyTaskInvolvement(id, m.workspaceId, added, m.userId, 'Added to a task');
+            await this.notifications.notifyTaskInvolvement(
+                id,
+                m.workspaceId,
+                added,
+                m.userId,
+                'Added to a task',
+            );
             if (removed.length) {
                 await this.notifications.notifyUsers(m.workspaceId, removed, {
                     type: 'TASK_UPDATED',
@@ -499,7 +570,11 @@ export class TasksService {
         const updated = await this.prisma.$transaction(async (tx) => {
             const task = await tx.task.update({ where: { id }, data });
             const assigneeIds = before.assignees.map((assignee) => assignee.userId);
-            await this.syncTimeEntries(tx, id, (dto.status ?? before.status) === 'IN_PROGRESS' ? assigneeIds : []);
+            await this.syncTimeEntries(
+                tx,
+                id,
+                (dto.status ?? before.status) === 'IN_PROGRESS' ? assigneeIds : [],
+            );
             return task;
         });
 
@@ -546,7 +621,11 @@ export class TasksService {
                     // progress is intentionally left as-is (subtask-derived).
                 },
             });
-            await this.syncTimeEntries(tx, id, status === 'IN_PROGRESS' ? task.assignees.map((a) => a.userId) : []);
+            await this.syncTimeEntries(
+                tx,
+                id,
+                status === 'IN_PROGRESS' ? task.assignees.map((a) => a.userId) : [],
+            );
             return updatedTask;
         });
 
@@ -608,7 +687,10 @@ export class TasksService {
         if (task) {
             await this.notifications.notifyUsers(
                 m.workspaceId,
-                [...task.assignees.map((item) => item.userId), ...task.collaborators.map((item) => item.userId)],
+                [
+                    ...task.assignees.map((item) => item.userId),
+                    ...task.collaborators.map((item) => item.userId),
+                ],
                 {
                     type: 'TASK_UPDATED',
                     title: 'Task deleted',
@@ -617,7 +699,9 @@ export class TasksService {
                 },
             );
         }
-        await this.prisma.task.deleteMany({ where: { id, workspaceId: m.workspaceId } });
+        await this.prisma.task.deleteMany({
+            where: { id, workspaceId: m.workspaceId },
+        });
         return { ok: true };
     }
 
@@ -625,7 +709,12 @@ export class TasksService {
         this.access.assertLeader(m);
         const source = await this.prisma.task.findFirstOrThrow({
             where: { id, workspaceId: m.workspaceId },
-            include: { assignees: true, collaborators: true, tags: true, dependencies: true },
+            include: {
+                assignees: true,
+                collaborators: true,
+                tags: true,
+                dependencies: true,
+            },
         });
 
         const copy = await this.prisma.$transaction(async (tx) => {
@@ -645,10 +734,18 @@ export class TasksService {
                     estimatedHrs: source.estimatedHrs,
                     links: source.links,
                     progress: 0,
-                    assignees: { create: source.assignees.map((a) => ({ userId: a.userId })) },
-                    collaborators: { create: source.collaborators.map((c) => ({ userId: c.userId })) },
+                    assignees: {
+                        create: source.assignees.map((a) => ({ userId: a.userId })),
+                    },
+                    collaborators: {
+                        create: source.collaborators.map((c) => ({ userId: c.userId })),
+                    },
                     tags: { create: source.tags.map((t) => ({ tagId: t.tagId })) },
-                    dependencies: { create: source.dependencies.map((d) => ({ dependsOnId: d.dependsOnId })) },
+                    dependencies: {
+                        create: source.dependencies.map((d) => ({
+                            dependsOnId: d.dependsOnId,
+                        })),
+                    },
                 },
             });
         });
@@ -715,7 +812,10 @@ export class TasksService {
             }
             if (patch.removeAssigneeIds?.length) {
                 await tx.taskAssignee.deleteMany({
-                    where: { taskId: { in: taskIds }, userId: { in: patch.removeAssigneeIds } },
+                    where: {
+                        taskId: { in: taskIds },
+                        userId: { in: patch.removeAssigneeIds },
+                    },
                 });
             }
             await tx.taskActivity.createMany({
@@ -747,8 +847,12 @@ export class TasksService {
                     excludeUserId: m.userId,
                 });
             }
-            const taskChanged =
-                Boolean(patch.status || patch.priority || patch.dueDate !== undefined || patch.workstreamId !== undefined);
+            const taskChanged = Boolean(
+                patch.status ||
+                patch.priority ||
+                patch.dueDate !== undefined ||
+                patch.workstreamId !== undefined,
+            );
             if (taskChanged) {
                 await this.notifications.notifyTaskAssignees(m.workspaceId, task.id, {
                     type: 'TASK_UPDATED',
@@ -789,9 +893,14 @@ export class TasksService {
         const dto = SubtaskUpdateSchema.parse(raw);
 
         return this.prisma.$transaction(async (tx) => {
-            const existing = await tx.subtask.findFirst({ where: { id: subtaskId, taskId } });
+            const existing = await tx.subtask.findFirst({
+                where: { id: subtaskId, taskId },
+            });
             if (!existing) throw new NotFoundException('Subtask not found');
-            const subtask = await tx.subtask.update({ where: { id: subtaskId }, data: dto });
+            const subtask = await tx.subtask.update({
+                where: { id: subtaskId },
+                data: dto,
+            });
             await this.recomputeProgress(tx, taskId);
             return subtask;
         });
@@ -800,7 +909,9 @@ export class TasksService {
     async deleteSubtask(m: Membership, taskId: string, subtaskId: string) {
         this.access.assertLeader(m);
         return this.prisma.$transaction(async (tx) => {
-            const existing = await tx.subtask.findFirst({ where: { id: subtaskId, taskId } });
+            const existing = await tx.subtask.findFirst({
+                where: { id: subtaskId, taskId },
+            });
             if (!existing) throw new NotFoundException('Subtask not found');
             await tx.subtask.delete({ where: { id: subtaskId } });
             await this.recomputeProgress(tx, taskId);
@@ -821,7 +932,10 @@ export class TasksService {
             await Promise.all(
                 ids.map((id, index) => tx.subtask.update({ where: { id }, data: { position: index } })),
             );
-            return tx.subtask.findMany({ where: { taskId }, orderBy: { position: 'asc' } });
+            return tx.subtask.findMany({
+                where: { taskId },
+                orderBy: { position: 'asc' },
+            });
         });
     }
 
@@ -835,7 +949,9 @@ export class TasksService {
         }
 
         return this.prisma.$transaction(async (tx) => {
-            const subtask = await tx.subtask.findFirst({ where: { id: subtaskId, taskId } });
+            const subtask = await tx.subtask.findFirst({
+                where: { id: subtaskId, taskId },
+            });
             if (!subtask) throw new NotFoundException('Subtask not found');
 
             const updated = await tx.subtask.update({
@@ -879,7 +995,9 @@ export class TasksService {
 
         const comment = await this.prisma.taskComment.create({
             data: { taskId, authorId: m.userId, body, mentions: mentionIds },
-            include: { author: { select: { id: true, name: true, avatarUrl: true } } },
+            include: {
+                author: { select: { id: true, name: true, avatarUrl: true } },
+            },
         });
 
         await this.prisma.taskActivity.create({
@@ -893,8 +1011,9 @@ export class TasksService {
         });
 
         const mentioned = new Set(mentionIds);
-        const recipients = [...new Set(activeMembers.map((member) => member.userId))]
-            .filter((userId) => userId !== m.userId && !mentioned.has(userId));
+        const recipients = [...new Set(activeMembers.map((member) => member.userId))].filter(
+            (userId) => userId !== m.userId && !mentioned.has(userId),
+        );
 
         await Promise.all([
             this.notifications.notifyUsers(m.workspaceId, recipients, {
@@ -937,7 +1056,12 @@ export class TasksService {
     async addAttachment(
         m: Membership,
         taskId: string,
-        file: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+        file: {
+            originalname: string;
+            mimetype: string;
+            size: number;
+            buffer: Buffer;
+        },
     ) {
         const task = await this.access.loadForRead(taskId, m);
         if (!file) throw new BadRequestException('Choose a file to upload');
@@ -1016,13 +1140,11 @@ export class TasksService {
      * (The new explicit Start/Pause endpoints act on the requester only; this
      * helper is a status-transition side-effect that is preserved as-is.)
      */
-    private async syncTimeEntries(
-        tx: Prisma.TransactionClient,
-        taskId: string,
-        desiredUserIds: string[],
-    ) {
+    private async syncTimeEntries(tx: Prisma.TransactionClient, taskId: string, desiredUserIds: string[]) {
         const desired = [...new Set(desiredUserIds)];
-        const open = await tx.taskTimeEntry.findMany({ where: { taskId, endedAt: null } });
+        const open = await tx.taskTimeEntry.findMany({
+            where: { taskId, endedAt: null },
+        });
         const openIds = new Set(open.map((entry) => entry.userId));
         const desiredIds = new Set(desired);
         const now = new Date();
@@ -1042,10 +1164,7 @@ export class TasksService {
     }
 
     /** Spec §2: visibility is assignment only; collaborators no longer confer read. */
-    private isInvolved(
-        task: { assignees: { userId: string }[] },
-        userId: string,
-    ) {
+    private isInvolved(task: { assignees: { userId: string }[] }, userId: string) {
         return task.assignees.some((a) => a.userId === userId);
     }
 
@@ -1058,11 +1177,7 @@ export class TasksService {
         return (last?.reference ?? 0) + 1;
     }
 
-    private async resolveTags(
-        tx: Prisma.TransactionClient,
-        workspaceId: string,
-        names: string[],
-    ) {
+    private async resolveTags(tx: Prisma.TransactionClient, workspaceId: string, names: string[]) {
         const cleaned = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
         const tags = await Promise.all(
             cleaned.map((name) =>
@@ -1076,8 +1191,43 @@ export class TasksService {
         return tags.map((t) => ({ tagId: t.id }));
     }
 
+    /**
+     * A task in an epic owned by a team may only be assigned to members of that
+     * team. Returns 422 (not 400) because the request is well-formed but the
+     * people do not fit the epic's team. Existing tasks are never rewritten.
+     */
+    private async assertAssigneesInEpicTeam(
+        workspaceId: string,
+        epicId: string | null | undefined,
+        assigneeIds: string[],
+    ) {
+        if (!epicId || !assigneeIds.length) return;
+
+        const epic = await this.prisma.epic.findFirst({
+            where: { id: epicId, workspaceId },
+            select: { title: true, teamId: true },
+        });
+        if (!epic) throw new BadRequestException('Epic not found in this workspace');
+        if (!epic.teamId) return;
+
+        const members = await this.prisma.teamMember.findMany({
+            where: { teamId: epic.teamId, userId: { in: [...new Set(assigneeIds)] } },
+            select: { userId: true },
+        });
+        const allowed = new Set(members.map((member) => member.userId));
+        const outside = [...new Set(assigneeIds)].filter((userId) => !allowed.has(userId));
+        if (outside.length) {
+            throw new UnprocessableEntityException(
+                `${outside.length} assignee(s) are not members of the team that owns epic “${epic.title}”. Add them to the team first.`,
+            );
+        }
+    }
+
     private async validateRelations(workspaceId: string, dto: Partial<CreateTaskDto>) {
         const userIds = [...(dto.assigneeIds ?? []), ...(dto.collaboratorIds ?? [])];
+        // Single-assignee writes still have to be active workspace members.
+        const singleAssignee = (dto as Partial<UpdateTaskDto>).assigneeId;
+        if (singleAssignee) userIds.push(singleAssignee);
         if (userIds.length) {
             const count = await this.prisma.workspaceMember.count({
                 where: { workspaceId, userId: { in: userIds }, isActive: true },
@@ -1087,8 +1237,16 @@ export class TasksService {
             }
         }
         if (dto.workstreamId) {
-            const ws = await this.prisma.workstream.count({ where: { id: dto.workstreamId, workspaceId } });
+            const ws = await this.prisma.workstream.count({
+                where: { id: dto.workstreamId, workspaceId },
+            });
             if (!ws) throw new BadRequestException('Workstream not found in this workspace');
+        }
+        if (dto.epicId) {
+            const epic = await this.prisma.epic.count({
+                where: { id: dto.epicId, workspaceId },
+            });
+            if (!epic) throw new BadRequestException('Epic not found in this workspace');
         }
         if (dto.dependencyIds?.length) {
             const deps = await this.prisma.task.count({
@@ -1163,8 +1321,16 @@ export class TasksService {
     private diffEvents(
         before: Record<string, any>,
         after: Record<string, any>,
-    ): { type: ActivityType; summary: string; metadata?: Record<string, unknown> }[] {
-        const events: { type: ActivityType; summary: string; metadata?: Record<string, unknown> }[] = [];
+    ): {
+        type: ActivityType;
+        summary: string;
+        metadata?: Record<string, unknown>;
+    }[] {
+        const events: {
+            type: ActivityType;
+            summary: string;
+            metadata?: Record<string, unknown>;
+        }[] = [];
         if (after.status && after.status !== before.status) {
             events.push({
                 type: 'STATUS_CHANGED',
@@ -1180,17 +1346,25 @@ export class TasksService {
             });
         }
         const datesChanged =
-            (after.dueDate && +new Date(after.dueDate) !== +(before.dueDate ? new Date(before.dueDate) : 0)) ||
-            (after.startDate && +new Date(after.startDate) !== +(before.startDate ? new Date(before.startDate) : 0));
+            (after.dueDate &&
+                +new Date(after.dueDate) !== +(before.dueDate ? new Date(before.dueDate) : 0)) ||
+            (after.startDate &&
+                +new Date(after.startDate) !== +(before.startDate ? new Date(before.startDate) : 0));
         if (datesChanged) {
-            events.push({ type: 'DATES_CHANGED', summary: 'changed the task schedule' });
+            events.push({
+                type: 'DATES_CHANGED',
+                summary: 'changed the task schedule',
+            });
         }
         return events;
     }
 
     private extractMentions(
         body: string,
-        members: { userId: string; user: { id: string; name: string; email: string } }[],
+        members: {
+            userId: string;
+            user: { id: string; name: string; email: string };
+        }[],
     ): string[] {
         const handles = [...body.matchAll(/@([\w.\-]+)/g)].map((m) => m[1].toLowerCase());
         if (!handles.length) return [];
@@ -1205,12 +1379,6 @@ export class TasksService {
 }
 
 const asArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
-
-
-
-
-
-
 
 // import {
 //     BadRequestException,
@@ -1362,8 +1530,6 @@ const asArray = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : [v]);
 //     //         return acc;
 //     //     }, {});
 //     // }
-
-
 
 //     async board(m: Membership) {
 //         const tasks = await this.prisma.task.findMany({
