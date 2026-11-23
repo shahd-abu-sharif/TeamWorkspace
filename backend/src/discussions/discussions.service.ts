@@ -1,11 +1,14 @@
 import {
+    BadRequestException,
     ForbiddenException,
     Injectable,
     NotFoundException,
+    PayloadTooLargeException,
 } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { FilesService } from '../files/files.service';
 import type { Membership } from '../common/decorators';
 import type {
     CreateDiscussionDto,
@@ -14,7 +17,18 @@ import type {
     UpdateDiscussionDto,
 } from './dto';
 
+const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
 const authorSelect = { select: { id: true, name: true, avatarUrl: true } };
+
+const attachmentSelect = {
+    id: true,
+    fileName: true,
+    mimeType: true,
+    sizeBytes: true,
+    createdAt: true,
+    uploadedById: true,
+} satisfies Prisma.DiscussionAttachmentSelect;
 
 const discussionListSelect = {
     id: true,
@@ -38,6 +52,7 @@ export class DiscussionsService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly notifications: NotificationsService,
+        private readonly files: FilesService,
     ) {}
 
     private async loadTeam(workspaceId: string, teamId: string) {
@@ -143,6 +158,11 @@ export class DiscussionsService {
                 lastReplyAt: true,
                 author: authorSelect,
                 team: { select: { id: true, name: true } },
+                attachments: {
+                    where: { replyId: null },
+                    orderBy: { createdAt: 'asc' },
+                    select: attachmentSelect,
+                },
                 replies: {
                     orderBy: { createdAt: 'asc' },
                     select: {
@@ -150,6 +170,7 @@ export class DiscussionsService {
                         body: true,
                         createdAt: true,
                         author: authorSelect,
+                        attachments: { orderBy: { createdAt: 'asc' }, select: attachmentSelect },
                     },
                 },
             },
@@ -283,6 +304,123 @@ export class DiscussionsService {
             where: { id: discussion.id },
             data: { lastReplyAt: new Date() },
         });
+        return { ok: true };
+    }
+
+    // -------------------------------------------------------------- attachments
+
+    private assertFile(file: { originalname: string; size: number } | undefined) {
+        if (!file) throw new BadRequestException('Choose a file to upload');
+        if (file.size > MAX_ATTACHMENT_BYTES) {
+            throw new PayloadTooLargeException('Files can be up to 25 MB');
+        }
+    }
+
+    private async attachmentForRead(m: Membership, attachmentId: string) {
+        const attachment = await this.prisma.discussionAttachment.findFirst({
+            where: { id: attachmentId, discussion: { workspaceId: m.workspaceId } },
+            select: {
+                ...attachmentSelect,
+                storageKey: true,
+                discussionId: true,
+                replyId: true,
+                discussion: { select: { id: true, teamId: true, title: true, authorId: true } },
+            },
+        });
+        if (!attachment) throw new NotFoundException('Attachment not found');
+        return attachment;
+    }
+
+    async addAttachment(
+        m: Membership,
+        id: string,
+        file: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+    ) {
+        const discussion = await this.loadDiscussion(m, id);
+        await this.assertCanWrite(m, discussion.teamId);
+        this.assertFile(file);
+
+        const stored = await this.files.saveUpload(file.originalname, file.mimetype, file.buffer);
+        const attachment = await this.prisma.discussionAttachment.create({
+            data: {
+                discussionId: id,
+                uploadedById: m.userId,
+                fileName: file.originalname,
+                mimeType: file.mimetype || 'application/octet-stream',
+                sizeBytes: file.size,
+                storageKey: stored.key,
+            },
+            select: attachmentSelect,
+        });
+
+        const team = await this.prisma.team.findUnique({
+            where: { id: discussion.teamId },
+            select: { name: true },
+        });
+        await this.notifyParticipants(
+            m.workspaceId,
+            await this.teamMemberIds(discussion.teamId),
+            {
+                title: `File added in ${team?.name ?? 'a team discussion'}`,
+                body: `${file.originalname} — ${discussion.title}`,
+                url: `/teams/${discussion.teamId}/discussions/${id}`,
+                dedupeKey: `discussion-file:${attachment.id}`,
+            },
+            m.userId,
+        );
+
+        return attachment;
+    }
+
+    async addReplyAttachment(
+        m: Membership,
+        replyId: string,
+        file: { originalname: string; mimetype: string; size: number; buffer: Buffer },
+    ) {
+        const reply = await this.prisma.teamDiscussionReply.findFirst({
+            where: { id: replyId, discussion: { workspaceId: m.workspaceId } },
+            select: { id: true, discussionId: true, discussion: { select: { teamId: true } } },
+        });
+        if (!reply) throw new NotFoundException('Reply not found');
+        await this.assertCanWrite(m, reply.discussion.teamId);
+        this.assertFile(file);
+
+        const stored = await this.files.saveUpload(file.originalname, file.mimetype, file.buffer);
+        return this.prisma.discussionAttachment.create({
+            data: {
+                discussionId: reply.discussionId,
+                replyId: reply.id,
+                uploadedById: m.userId,
+                fileName: file.originalname,
+                mimeType: file.mimetype || 'application/octet-stream',
+                sizeBytes: file.size,
+                storageKey: stored.key,
+            },
+            select: attachmentSelect,
+        });
+    }
+
+    /** Mirrors task attachments: signed URL on S3, base64 bytes on local disk. */
+    async attachmentDownload(m: Membership, attachmentId: string) {
+        const attachment = await this.attachmentForRead(m, attachmentId);
+        if (process.env.S3_BUCKET) return this.files.createDownloadUrl(attachment.storageKey);
+        const content = await this.files.readUpload(attachment.storageKey);
+        const { discussion: _discussion, ...rest } = attachment;
+        return { ...rest, content: content.toString('base64') };
+    }
+
+    async removeAttachment(m: Membership, attachmentId: string) {
+        const attachment = await this.attachmentForRead(m, attachmentId);
+        const mayRemove =
+            attachment.uploadedById === m.userId ||
+            attachment.discussion.authorId === m.userId ||
+            m.role === 'LEADER';
+        if (!mayRemove) {
+            throw new ForbiddenException(
+                'Only the uploader, the post author or a leader can remove this file',
+            );
+        }
+        await this.prisma.discussionAttachment.delete({ where: { id: attachmentId } });
         return { ok: true };
     }
 }

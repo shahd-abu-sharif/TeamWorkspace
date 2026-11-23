@@ -27,7 +27,13 @@ const taskReadInclude = {
     attachments: true,
     subtasks: {
         orderBy: { position: 'asc' as const },
-        include: { doneBy: { select: { id: true, name: true } } },
+        include: {
+            doneBy: { select: { id: true, name: true } },
+            completions: {
+                orderBy: { completedAt: 'asc' as const },
+                include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+            },
+        },
     },
 } satisfies Prisma.TaskInclude;
 

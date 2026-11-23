@@ -448,6 +448,9 @@ export class TasksService {
                     data: requestedAssigneeIds.map((userId) => ({ taskId: id, userId })),
                     skipDuplicates: true,
                 });
+                // A subtask is "done" only when every assignee ticked it, so a
+                // changed assignee list changes the answer.
+                await this.syncSubtasksDone(tx, id);
             }
             const nextAssigneeIds =
                 requestedAssigneeIds ?? before.assignees.map((assignee) => assignee.userId);
@@ -816,6 +819,12 @@ export class TasksService {
                     },
                 });
             }
+            if (patch.addAssigneeIds?.length || patch.removeAssigneeIds?.length) {
+                for (const taskId of taskIds) {
+                    await this.syncSubtasksDone(tx, taskId);
+                    await this.recomputeProgress(tx, taskId);
+                }
+            }
             await tx.taskActivity.createMany({
                 data: taskIds.map((taskId) => ({
                     workspaceId: m.workspaceId,
@@ -937,12 +946,19 @@ export class TasksService {
         });
     }
 
+    /**
+     * Every person ticks a subtask for themselves only — a tick never appears
+     * checked for anyone else. The subtask is marked done once every assignee
+     * has ticked it; ticks from people who are not assignees are kept for the
+     * "who checked" list but do not count towards that.
+     */
     async toggleSubtask(m: Membership, taskId: string, subtaskId: string, raw: unknown) {
         const { done } = SubtaskToggleSchema.parse(raw);
         // assertCanWrite gates: 404 for non-assignee non-leader, 403 for non-leader
         // on archived tasks, and it returns the task with assignees loaded.
         const task = await this.access.assertCanWrite(taskId, m);
-        if (m.role !== 'LEADER' && !task.assignees.some((a) => a.userId === m.userId)) {
+        const assigneeIds = task.assignees.map((assignee) => assignee.userId);
+        if (m.role !== 'LEADER' && !assigneeIds.includes(m.userId)) {
             throw new NotFoundException('Task not found');
         }
 
@@ -952,15 +968,31 @@ export class TasksService {
             });
             if (!subtask) throw new NotFoundException('Subtask not found');
 
-            const updated = await tx.subtask.update({
+            if (done) {
+                await tx.subtaskCompletion.upsert({
+                    where: { subtaskId_userId: { subtaskId, userId: m.userId } },
+                    create: { subtaskId, userId: m.userId },
+                    update: {},
+                });
+            } else {
+                await tx.subtaskCompletion.deleteMany({
+                    where: { subtaskId, userId: m.userId },
+                });
+            }
+
+            await this.syncSubtaskDone(tx, subtaskId);
+            const progress = await this.recomputeProgress(tx, taskId);
+
+            const updated = await tx.subtask.findUniqueOrThrow({
                 where: { id: subtaskId },
-                data: {
-                    done,
-                    doneById: done ? m.userId : null,
-                    doneAt: done ? new Date() : null,
+                include: {
+                    doneBy: { select: { id: true, name: true } },
+                    completions: {
+                        orderBy: { completedAt: 'asc' },
+                        include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+                    },
                 },
             });
-            const progress = await this.recomputeProgress(tx, taskId);
 
             await tx.taskActivity.create({
                 data: {
@@ -975,6 +1007,59 @@ export class TasksService {
 
             return { subtask: updated, progress };
         });
+    }
+
+    /** Recompute the derived `done` flag for one subtask from its ticks. */
+    private async syncSubtaskDone(tx: Prisma.TransactionClient, subtaskId: string) {
+        const subtask = await tx.subtask.findUnique({
+            where: { id: subtaskId },
+            select: { id: true, taskId: true },
+        });
+        if (!subtask) return;
+
+        const [assignees, completions] = await Promise.all([
+            tx.taskAssignee.findMany({
+                where: { taskId: subtask.taskId },
+                select: { userId: true },
+            }),
+            tx.subtaskCompletion.findMany({
+                where: { subtaskId },
+                orderBy: { completedAt: 'asc' },
+                select: { userId: true, completedAt: true },
+            }),
+        ]);
+
+        const assigneeIds = assignees.map((assignee) => assignee.userId);
+        const tickedByAssignees = completions.filter((entry) =>
+            assigneeIds.includes(entry.userId),
+        );
+        const done =
+            assigneeIds.length === 0
+                ? completions.length > 0
+                : assigneeIds.every((userId) =>
+                      tickedByAssignees.some((entry) => entry.userId === userId),
+                  );
+        const last = done ? tickedByAssignees.at(-1) ?? completions.at(-1) : undefined;
+
+        await tx.subtask.update({
+            where: { id: subtaskId },
+            data: {
+                done,
+                doneById: done ? (last?.userId ?? null) : null,
+                doneAt: done ? (last?.completedAt ?? new Date()) : null,
+            },
+        });
+    }
+
+    /** Recompute every subtask of a task (after its assignee list changed). */
+    private async syncSubtasksDone(tx: Prisma.TransactionClient, taskId: string) {
+        const subtasks = await tx.subtask.findMany({
+            where: { taskId },
+            select: { id: true },
+        });
+        for (const subtask of subtasks) {
+            await this.syncSubtaskDone(tx, subtask.id);
+        }
     }
 
     // ---------------------------------------------------------------- comments

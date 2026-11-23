@@ -3,11 +3,23 @@
 // A discussion board per team: posts with replies, meant for decisions and
 // write-ups ("which design system do we adopt?") rather than live chat. The API
 // lets every workspace member read, while posting requires team membership.
-import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CheckCircle2, MessageSquare, Plus, Trash2 } from 'lucide-react';
+import {
+    ArrowLeft,
+    CheckCircle2,
+    Download,
+    FileSpreadsheet,
+    FileText,
+    Image as ImageIcon,
+    MessageSquare,
+    Paperclip,
+    Plus,
+    Trash2,
+    Upload,
+} from 'lucide-react';
 import { apiClient } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { btnPrimary, btnSecondary, Field, input } from '../components/QuickCreateTask';
@@ -30,16 +42,27 @@ interface DiscussionSummary {
     replyCount: number;
 }
 
+interface DiscussionFile {
+    id: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    createdAt: string;
+    uploadedById: string;
+}
+
 interface DiscussionReply {
     id: string;
     body: string;
     createdAt: string;
     author: DiscussionAuthor;
+    attachments: DiscussionFile[];
 }
 
 interface DiscussionDetail extends Omit<DiscussionSummary, 'replyCount'> {
     body: string;
     team: { id: string; name: string };
+    attachments: DiscussionFile[];
     replies: DiscussionReply[];
 }
 
@@ -50,6 +73,150 @@ const when = (value: string) =>
         hour: '2-digit',
         minute: '2-digit',
     });
+
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+const fileSize = (bytes: number) =>
+    bytes >= 1024 * 1024
+        ? `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+const isSheet = (mime: string, name: string) =>
+    /spreadsheet|ms-excel|csv/.test(mime) || /\.(xlsx?|csv|ods)$/i.test(name);
+
+const FileIcon = ({ mime, name }: { mime: string; name: string }) => {
+    if (isSheet(mime, name))
+        return (
+            <span className="grid size-8 place-items-center rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50">
+                <FileSpreadsheet className="size-4" />
+            </span>
+        );
+    if (mime.startsWith('image/'))
+        return (
+            <span className="grid size-8 place-items-center rounded bg-blue-50 text-blue-700 dark:bg-blue-950/50">
+                <ImageIcon className="size-4" />
+            </span>
+        );
+    return (
+        <span className="grid size-8 place-items-center rounded bg-slate-100 text-slate-600 dark:bg-slate-800">
+            <FileText className="size-4" />
+        </span>
+    );
+};
+
+/** Download through the API (works for both S3 signed URLs and local disk). */
+async function saveFile(file: DiscussionFile) {
+    const result = await apiClient.get<any>(`/discussions/attachments/${file.id}/download`);
+    if (result.url) {
+        window.open(result.url, '_blank', 'noopener,noreferrer');
+        return;
+    }
+    const bytes = Uint8Array.from(atob(result.content), (char) => char.charCodeAt(0));
+    const objectUrl = URL.createObjectURL(new Blob([bytes], { type: file.mimeType }));
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = file.fileName;
+    anchor.click();
+    URL.revokeObjectURL(objectUrl);
+}
+
+function AttachmentList({
+    files,
+    canRemove,
+    onError,
+    onRemoved,
+}: {
+    files: DiscussionFile[];
+    canRemove: (file: DiscussionFile) => boolean;
+    onError: (message: string) => void;
+    onRemoved: () => void;
+}) {
+    const { t } = useTranslation();
+    if (files.length === 0) return null;
+
+    return (
+        <ul className="mt-3 space-y-1.5">
+            {files.map((file) => (
+                <li
+                    key={file.id}
+                    className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/60 px-2 py-1.5 dark:border-slate-700 dark:bg-slate-800/60"
+                >
+                    <FileIcon mime={file.mimeType} name={file.fileName} />
+                    <button
+                        type="button"
+                        onClick={() => void saveFile(file).catch((err) => onError((err as Error).message))}
+                        className="min-w-0 flex-1 text-start hover:underline"
+                        title={t('discussions.attachments')}
+                    >
+                        <span className="block truncate text-sm font-medium">{file.fileName}</span>
+                        <span className="text-[11px] text-slate-500">{fileSize(file.sizeBytes)}</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => void saveFile(file).catch((err) => onError((err as Error).message))}
+                        className="rounded p-1.5 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
+                        aria-label={t('discussions.attachments')}
+                    >
+                        <Download className="size-4" />
+                    </button>
+                    {canRemove(file) && (
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                try {
+                                    await apiClient.delete(`/discussions/attachments/${file.id}`);
+                                    onRemoved();
+                                } catch (err) {
+                                    onError((err as Error).message);
+                                }
+                            }}
+                            className="rounded p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                            aria-label={t('discussions.removeFile')}
+                        >
+                            <Trash2 className="size-4" />
+                        </button>
+                    )}
+                </li>
+            ))}
+        </ul>
+    );
+}
+
+function AttachmentPicker({
+    onPick,
+    busy,
+    label,
+}: {
+    onPick: (file: File) => void;
+    busy?: boolean;
+    label?: string;
+}) {
+    const { t } = useTranslation();
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    return (
+        <>
+            <button
+                type="button"
+                onClick={() => inputRef.current?.click()}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            >
+                <Paperclip className="size-3.5" /> {busy ? t('discussions.uploading') : (label ?? t('discussions.addFile'))}
+            </button>
+            <input
+                ref={inputRef}
+                type="file"
+                className="sr-only"
+                onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) onPick(file);
+                    event.currentTarget.value = '';
+                }}
+            />
+        </>
+    );
+}
 
 function StatusChip({ status }: { status: 'OPEN' | 'RESOLVED' }) {
     const { t } = useTranslation();
@@ -68,6 +235,7 @@ function StatusChip({ status }: { status: 'OPEN' | 'RESOLVED' }) {
 export function TeamDiscussions({ teamId }: { teamId: string }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
+    const navigate = useNavigate();
     const [status, setStatus] = useState<'' | 'OPEN' | 'RESOLVED'>('');
     const [composing, setComposing] = useState(false);
 
@@ -133,9 +301,10 @@ export function TeamDiscussions({ teamId }: { teamId: string }) {
                 <NewDiscussionModal
                     teamId={teamId}
                     onClose={() => setComposing(false)}
-                    onCreated={() => {
+                    onCreated={(discussionId) => {
                         setComposing(false);
                         void qc.invalidateQueries({ queryKey: ['discussions', teamId] });
+                        navigate(`/teams/${teamId}/discussions/${discussionId}`);
                     }}
                 />
             )}
@@ -150,16 +319,37 @@ function NewDiscussionModal({
 }: {
     teamId: string;
     onClose: () => void;
-    onCreated: () => void;
+    onCreated: (discussionId: string) => void;
 }) {
     const { t } = useTranslation();
     const [title, setTitle] = useState('');
     const [body, setBody] = useState('');
+    const [files, setFiles] = useState<File[]>([]);
     const [error, setError] = useState('');
 
     const create = useMutation({
-        mutationFn: () => apiClient.post(`/teams/${teamId}/discussions`, { title: title.trim(), body }),
-        onSuccess: onCreated,
+        mutationFn: async () => {
+            const discussion = await apiClient.post<{ id: string }>(`/teams/${teamId}/discussions`, {
+                title: title.trim(),
+                body,
+            });
+            // Attach after the post exists; a failed upload must not lose the post.
+            const failed: string[] = [];
+            for (const file of files) {
+                try {
+                    await apiClient.upload(`/discussions/${discussion.id}/attachments`, file);
+                } catch {
+                    failed.push(file.name);
+                }
+            }
+            return { discussion, failed };
+        },
+        onSuccess: ({ discussion, failed }) => {
+            if (failed.length > 0) {
+                setError(t('discussions.uploadFailed', { files: failed.join(', ') }));
+            }
+            onCreated(discussion.id);
+        },
         onError: (mutationError) => setError((mutationError as Error).message),
     });
 
@@ -202,6 +392,45 @@ function NewDiscussionModal({
                     <Field label={t('discussions.postBody')} hint={t('discussions.markdownHint')}>
                         <MarkdownEditor value={body} onChange={setBody} />
                     </Field>
+
+                    <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <AttachmentPicker
+                                onPick={(file) => {
+                                    if (file.size > MAX_FILE_BYTES) {
+                                        setError(t('discussions.fileTooBig'));
+                                        return;
+                                    }
+                                    setFiles((current) => [...current, file]);
+                                }}
+                            />
+                            <span className="text-xs text-slate-500">{t('discussions.pendingFiles')}</span>
+                        </div>
+                        {files.length > 0 && (
+                            <ul className="mt-2 space-y-1">
+                                {files.map((file, index) => (
+                                    <li
+                                        key={`${file.name}-${index}`}
+                                        className="flex items-center gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700"
+                                    >
+                                        <FileIcon mime={file.type} name={file.name} />
+                                        <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                                        <span className="text-xs text-slate-500">{fileSize(file.size)}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setFiles((current) => current.filter((_, i) => i !== index))
+                                            }
+                                            className="rounded p-1 text-red-600 hover:bg-red-50"
+                                            aria-label={t('discussions.removeFile')}
+                                        >
+                                            <Trash2 className="size-4" />
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
                 </div>
 
                 <div className="mt-5 flex justify-end gap-2">
@@ -223,6 +452,7 @@ export function DiscussionDetailPage() {
     const { teamId, discussionId } = useParams();
     const { user, role } = useAuth();
     const [reply, setReply] = useState('');
+    const [fileError, setFileError] = useState('');
 
     const { data: post, isLoading, error } = useQuery({
         queryKey: ['discussion', discussionId],
@@ -249,6 +479,26 @@ export function DiscussionDetailPage() {
         onSuccess: refresh,
     });
 
+    const upload = useMutation({
+        mutationFn: ({ file, replyId }: { file: File; replyId?: string }) =>
+            replyId
+                ? apiClient.upload(`/discussions/replies/${replyId}/attachments`, file)
+                : apiClient.upload(`/discussions/${discussionId}/attachments`, file),
+        onSuccess: () => {
+            setFileError('');
+            refresh();
+        },
+        onError: (uploadError) => setFileError((uploadError as Error).message),
+    });
+
+    const pickFile = (file: File, replyId?: string) => {
+        if (file.size > MAX_FILE_BYTES) {
+            setFileError(t('discussions.fileTooBig'));
+            return;
+        }
+        upload.mutate({ file, replyId });
+    };
+
     const remove = useMutation({
         mutationFn: () => apiClient.delete(`/discussions/${discussionId}`),
         onSuccess: () => {
@@ -271,6 +521,12 @@ export function DiscussionDetailPage() {
             >
                 <ArrowLeft className="size-4" /> {post.team.name}
             </Link>
+
+            {fileError && (
+                <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {fileError}
+                </p>
+            )}
 
             <article className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -310,6 +566,25 @@ export function DiscussionDetailPage() {
                 <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
                     <MarkdownRenderer content={post.body} />
                 </div>
+
+                <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                            <Paperclip className="size-3.5" /> {t('discussions.attachments')} ({post.attachments.length})
+                        </p>
+                        <AttachmentPicker
+                            onPick={(file) => pickFile(file)}
+                            busy={upload.isPending}
+                            label={t('discussions.addFile')}
+                        />
+                    </div>
+                    <AttachmentList
+                        files={post.attachments}
+                        canRemove={(file) => canModerate || file.uploadedById === user?.id}
+                        onError={setFileError}
+                        onRemoved={refresh}
+                    />
+                </div>
             </article>
 
             <section className="space-y-3">
@@ -333,6 +608,19 @@ export function DiscussionDetailPage() {
                             </p>
                             <div className="mt-2">
                                 <MarkdownRenderer content={item.body} />
+                            </div>
+                            <AttachmentList
+                                files={item.attachments}
+                                canRemove={(file) => canModerate || file.uploadedById === user?.id}
+                                onError={setFileError}
+                                onRemoved={refresh}
+                            />
+                            <div className="mt-2">
+                                <AttachmentPicker
+                                    onPick={(file) => pickFile(file, item.id)}
+                                    busy={upload.isPending}
+                                    label={t('discussions.addFile')}
+                                />
                             </div>
                         </li>
                     ))}

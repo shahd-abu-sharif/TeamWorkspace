@@ -451,6 +451,32 @@
         "markResolved": "تحديد كمحلول",
         "reopen": "إعادة الفتح",
         "deleteConfirm": "حذف هذا المنشور وكل ردوده؟",
-        "notFound": "النقاش غير موجود"
+        "notFound": "النقاش غير موجود",
+        "attachments": "الملفات",
+        "addFile": "إرفاق ملف",
+        "uploading": "جارٍ الرفع…",
+        "noFiles": "لا توجد ملفات مرفقة.",
+        "removeFile": "حذف الملف",
+        "fileTooBig": "الحد الأقصى للملف 25 ميجابايت",
+        "pendingFiles": "ستُرفق عند النشر",
+        "uploadFailed": "تم النشر، لكن فشل رفع هذه الملفات: {{files}}"
+    },
+    "editor": {
+        "bold": "عريض",
+        "italic": "مائل",
+        "code": "كود",
+        "link": "رابط",
+        "list": "قائمة",
+        "table": "إدراج جدول",
+        "tableSize": "حجم الجدول",
+        "columns": "الأعمدة",
+        "rows": "الصفوف",
+        "insertTable": "إدراج الجدول",
+        "pasteSheet": "لصق من Excel",
+        "pasteSheetTitle": "لصق من Excel أو CSV",
+        "pasteSheetHint": "حدد الخلايا في Excel أو Google Sheets وانسخها (Ctrl+C)، أو الصق نص CSV. الصف الأول يصبح رأس الجدول.",
+        "pasteSheetPlaceholder": "المهمة\tالمسؤول\tالموعد\nمراجعة التصميم\tسارة\t12 مارس",
+        "moreRows": "+{{count}} صفوف أخرى",
+        "placeholder": "اكتب وصفًا... (يدعم Markdown)"
     }
 }

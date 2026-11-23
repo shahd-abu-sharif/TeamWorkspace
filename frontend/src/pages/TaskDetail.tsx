@@ -165,6 +165,16 @@ export function TaskDetailPage() {
     // ── Derived data ───────────────────────────────────────────────────────
     const totalSubtasks = task.subtasks?.length ?? 0;
     const checkedSubtasks = (task.subtasks ?? []).filter((s: any) => s.done).length;
+    // Subtasks are ticked per assignee: the box reflects *my* tick, the avatars
+    // show who else has ticked, and `done` flips only when everyone has.
+    const taskAssigneeIds: string[] = (task.assignees ?? []).map((a: any) => a.user.id);
+    const myTick = (subtask: any) =>
+        (subtask.completions ?? []).some((c: any) => c.userId === user?.id);
+    const isSubtaskChecked = (subtask: any) =>
+        taskAssigneeIds.length > 0 ? myTick(subtask) : Boolean(subtask.done);
+    // Only assignees count towards "n/m"; a leader's own tick is informational.
+    const assigneeTicks = (subtask: any) =>
+        (subtask.completions ?? []).filter((c: any) => taskAssigneeIds.includes(c.userId));
     const progressPct = totalSubtasks === 0 ? 0 : Math.round((checkedSubtasks / totalSubtasks) * 100);
 
     const perUser: { id: string; name: string; seconds: number; runningSince: number | null }[] = [];
@@ -302,12 +312,13 @@ export function TaskDetailPage() {
                                     <li key={s.id} className="flex items-center gap-2 rounded px-1 py-1">
                                         <input
                                             type="checkbox"
-                                            checked={s.done}
+                                            checked={isSubtaskChecked(s)}
                                             onChange={(e) =>
                                                 toggleSubtask.mutate({ subtaskId: s.id, done: e.target.checked })
                                             }
                                             disabled={toggleSubtask.isPending}
                                             className="size-4 accent-[#2563EB]"
+                                            aria-label={`Mark “${s.label}” done for me`}
                                         />
                                         <span
                                             className={`min-w-0 flex-1 text-sm ${s.done ? 'line-through text-slate-400' : ''
@@ -315,10 +326,39 @@ export function TaskDetailPage() {
                                         >
                                             {s.label}
                                         </span>
-                                        {s.done && s.doneBy && (
-                                            <span className="text-xs text-slate-400">
-                                                {s.doneBy.name}
-                                                {s.doneAt ? ` · ${new Date(s.doneAt).toLocaleString()}` : ''}
+                                        {(s.completions?.length ?? 0) > 0 && (
+                                            <span className="flex items-center gap-1">
+                                                <span className="flex -space-x-1.5 rtl:space-x-reverse">
+                                                    {s.completions.slice(0, 4).map((c: any) => (
+                                                        <span
+                                                            key={c.userId}
+                                                            title={`${c.user.name} checked · ${new Date(
+                                                                c.completedAt,
+                                                            ).toLocaleString()}`}
+                                                            className="grid size-6 place-items-center overflow-hidden rounded-full border-2 border-white bg-emerald-100 text-[10px] font-semibold text-emerald-800 dark:border-slate-900 dark:bg-emerald-900/60 dark:text-emerald-200"
+                                                        >
+                                                            {c.user.avatarUrl ? (
+                                                                <img
+                                                                    src={c.user.avatarUrl}
+                                                                    alt={c.user.name}
+                                                                    className="size-full object-cover"
+                                                                />
+                                                            ) : (
+                                                                c.user.name.slice(0, 1).toUpperCase()
+                                                            )}
+                                                        </span>
+                                                    ))}
+                                                </span>
+                                                {taskAssigneeIds.length > 1 && (
+                                                    <span
+                                                        className="text-[11px] text-slate-400"
+                                                        title={assigneeTicks(s)
+                                                            .map((c: any) => c.user.name)
+                                                            .join(', ')}
+                                                    >
+                                                        {assigneeTicks(s).length}/{taskAssigneeIds.length}
+                                                    </span>
+                                                )}
                                             </span>
                                         )}
                                         {canEditAll && (
