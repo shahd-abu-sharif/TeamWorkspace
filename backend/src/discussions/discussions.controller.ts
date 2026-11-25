@@ -120,6 +120,15 @@ export class DiscussionsController {
         return this.discussions.attachmentDownload(m, attachmentId);
     }
 
+    /** Same payload without the /download suffix. */
+    @Get('attachments/:attachmentId')
+    downloadAttachmentAlias(
+        @CurrentMembership() m: Membership,
+        @Param('attachmentId') attachmentId: string,
+    ) {
+        return this.discussions.attachmentDownload(m, attachmentId);
+    }
+
     @Delete('attachments/:attachmentId')
     removeAttachment(
         @CurrentMembership() m: Membership,
