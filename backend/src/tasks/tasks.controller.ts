@@ -44,6 +44,12 @@ export class TasksController {
     return this.tasksService.attachmentDownload(membership, id, attachmentId);
   }
 
+  /** Same payload without the /download suffix (links get trimmed by hand). */
+  @Get(':id/attachments/:attachmentId')
+  downloadAttachmentAlias(@CurrentMembership() membership: Membership, @Param('id') id: string, @Param('attachmentId') attachmentId: string) {
+    return this.tasksService.attachmentDownload(membership, id, attachmentId);
+  }
+
   @Post()
   @Roles('LEADER')
   create(@CurrentMembership() membership: Membership, @Body() body: unknown) {
