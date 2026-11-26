@@ -421,6 +421,7 @@ export class DiscussionsService {
             );
         }
         await this.prisma.discussionAttachment.delete({ where: { id: attachmentId } });
+        await this.files.deleteUpload(attachment.storageKey);
         return { ok: true };
     }
 }
