@@ -1224,6 +1224,39 @@ export class TasksService {
         return attachment;
     }
 
+    /**
+     * Remove a file from a task. The uploader, the task creator and workspace
+     * leaders may delete it; everyone else with task access gets a 403.
+     */
+    async removeAttachment(m: Membership, taskId: string, attachmentId: string) {
+        const task = await this.access.loadForRead(taskId, m);
+        const attachment = task.attachments.find((item) => item.id === attachmentId);
+        if (!attachment) throw new NotFoundException('Attachment not found');
+
+        const mayRemove =
+            m.role === 'LEADER' ||
+            attachment.uploadedById === m.userId ||
+            task.createdById === m.userId;
+        if (!mayRemove) {
+            throw new ForbiddenException(
+                'Only the uploader, the task creator or a leader can remove this file',
+            );
+        }
+
+        await this.prisma.taskAttachment.delete({ where: { id: attachmentId } });
+        await this.files.deleteUpload(attachment.storageKey);
+        await this.prisma.taskActivity.create({
+            data: {
+                workspaceId: m.workspaceId,
+                taskId,
+                actorId: m.userId,
+                type: 'ATTACHMENT_REMOVED',
+                summary: `removed ${attachment.fileName}`,
+            },
+        });
+        return { ok: true };
+    }
+
     async attachmentDownload(m: Membership, taskId: string, attachmentId: string) {
         const task = await this.access.loadForRead(taskId, m);
         const attachment = task.attachments.find((item) => item.id === attachmentId);

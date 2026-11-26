@@ -1,8 +1,7 @@
 // apps/api/src/files/files.service.ts
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { basename, extname, join } from 'node:path';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, extname } from 'node:path';
 import { PrismaService } from '../prisma/prisma.service';
 
 type S3Config = {
@@ -14,17 +13,19 @@ type S3Config = {
 };
 
 const MISSING_FILE_MESSAGE =
-  'This file is no longer available. It was uploaded to the server\'s temporary disk before ' +
-  'durable storage was switched on, and that disk is wiped on every deploy — ask the uploader ' +
-  'to attach it again. New uploads are now stored durably.';
+  'This file is no longer available. It was uploaded before durable storage was enabled and ' +
+  'was lost when the server restarted — ask the uploader to attach it again.';
 
 /**
- * Storage abstraction, in order of preference:
+ * File storage. Two drivers, never the container disk:
  *
- * 1. S3-compatible object storage when `S3_BUCKET` is set (AWS S3, Cloudflare R2,
- *    Supabase Storage — the last two need `S3_ENDPOINT`).
- * 2. Postgres (`FileBlob`) so uploads survive container restarts and deploys.
- * 3. The container's local disk — only for legacy rows written before 2 existed.
+ * 1. S3-compatible object storage when `S3_BUCKET` is set (AWS S3, Cloudflare
+ *    R2, Supabase Storage — the last two need `S3_ENDPOINT`).
+ * 2. Postgres (`FileBlob`) otherwise, so uploads survive restarts and deploys
+ *    without any extra service.
+ *
+ * Nothing is ever written to the container filesystem: that disk is discarded
+ * on every deploy, which silently orphaned attachments in the past.
  */
 @Injectable()
 export class FilesService {
@@ -40,6 +41,9 @@ export class FilesService {
       this.logger.log(
         'File storage: Postgres (FileBlob). Files survive deploys; configure S3_BUCKET for object storage.',
       );
+      if (process.env.S3_ENDPOINT && !process.env.S3_ACCESS_KEY_ID) {
+        this.logger.warn('S3_ENDPOINT is set without S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY — S3 is ignored.');
+      }
     }
   }
 
@@ -94,7 +98,7 @@ export class FilesService {
     }
 
     return {
-      uploadUrl: `${process.env.API_PUBLIC_URL ?? ''}/api/files/local/${key}`,
+      uploadUrl: `${process.env.API_PUBLIC_URL ?? ''}/api/files/direct/${key}`,
       key,
       expiresIn: 600,
       note: 'Uploads go through the API and are stored in Postgres.',
@@ -139,39 +143,16 @@ export class FilesService {
       where: { key },
       select: { data: true },
     });
-    if (blob) return Buffer.from(blob.data);
-
-    // Legacy rows: written to the container disk before Postgres storage existed.
-    const root = process.env.FILE_UPLOAD_DIR ?? process.cwd();
-    const normalized = key.replaceAll('\\', '/');
-    if (!normalized.startsWith('uploads/') || normalized.includes('..')) {
-      throw new Error('Invalid storage key');
+    if (!blob) {
+      this.logger.warn(`Missing upload: ${key}`);
+      throw new NotFoundException(MISSING_FILE_MESSAGE);
     }
-    try {
-      return await readFile(join(root, normalized));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        this.logger.warn(`Missing upload (no blob, no disk file): ${normalized}`);
-        throw new NotFoundException(MISSING_FILE_MESSAGE);
-      }
-      throw error;
-    }
+    return Buffer.from(blob.data);
   }
 
-  /** Remove the stored bytes (blob or legacy disk file) for a deleted attachment. */
+  /** Remove the stored bytes for a deleted attachment. */
   async deleteUpload(key: string) {
     await this.prisma.fileBlob.deleteMany({ where: { key } });
-    if (this.isUsingObjectStorage()) return;
-
-    const root = process.env.FILE_UPLOAD_DIR ?? process.cwd();
-    const normalized = key.replaceAll('\\', '/');
-    if (!normalized.startsWith('uploads/') || normalized.includes('..')) return;
-    try {
-      const { rm } = await import('node:fs/promises');
-      await rm(join(root, normalized), { force: true });
-    } catch {
-      // Best effort: a missing legacy file is already gone.
-    }
   }
 
   async createDownloadUrl(key: string) {
@@ -188,6 +169,6 @@ export class FilesService {
         expiresIn: 3600,
       };
     }
-    return { url: `${process.env.API_PUBLIC_URL ?? ''}/api/files/local/${key}`, expiresIn: 3600 };
+    return { url: `${process.env.API_PUBLIC_URL ?? ''}/api/files/direct/${key}`, expiresIn: 3600 };
   }
 }
