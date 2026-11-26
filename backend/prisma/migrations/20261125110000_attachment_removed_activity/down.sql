@@ -1,0 +1,1 @@
+-- Reverting an enum value needs a full type rebuild; left empty on purpose.

@@ -193,6 +193,13 @@ export function TaskDetailPage() {
         onError: (err) => setAttachmentError((err as Error).message),
     });
 
+    const deleteAttachment = useMutation({
+        mutationFn: (attachmentId: string) =>
+            apiClient.delete(`/tasks/${id}/attachments/${attachmentId}`),
+        onSuccess: () => { setAttachmentError(''); invalidate(); },
+        onError: (err) => setAttachmentError((err as Error).message),
+    });
+
     const addComment = useMutation({
         mutationFn: (body: string) => apiClient.post(`/tasks/${id}/comments`, { body }),
         onSuccess: () => { setComment(''); invalidate(); },
@@ -664,6 +671,11 @@ export function TaskDetailPage() {
                                         )}
                                         <div className="min-w-0 flex-1">
                                             <p className="truncate text-sm font-medium">{file.fileName}</p>
+                                            <p className="text-[11px] text-slate-500">
+                                                {file.sizeBytes
+                                                    ? `${(file.sizeBytes / 1024 / 1024).toFixed(1)} MB`
+                                                    : ''}
+                                            </p>
                                         </div>
                                         <button
                                             type="button"
@@ -692,9 +704,27 @@ export function TaskDetailPage() {
                                                 }
                                             }}
                                             className="rounded p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                            aria-label={`Download ${file.fileName}`}
                                         >
                                             <Download className="size-4" />
                                         </button>
+                                        {(role === 'LEADER' ||
+                                            file.uploadedById === user?.id ||
+                                            task.createdById === user?.id) && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (!confirm(`Delete “${file.fileName}”?`)) return;
+                                                    deleteAttachment.mutate(file.id);
+                                                }}
+                                                disabled={deleteAttachment.isPending}
+                                                className="rounded p-2 text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40"
+                                                aria-label={`Delete ${file.fileName}`}
+                                                title="Delete file"
+                                            >
+                                                <Trash2 className="size-4" />
+                                            </button>
+                                        )}
                                     </li>
                                 ))}
                             </ul>
