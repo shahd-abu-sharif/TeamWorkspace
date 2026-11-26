@@ -3,6 +3,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { basename, extname, join } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { PrismaService } from '../prisma/prisma.service';
 
 type S3Config = {
   bucket: string;
@@ -13,33 +14,31 @@ type S3Config = {
 };
 
 const MISSING_FILE_MESSAGE =
-  'This file is no longer available on the server. It was stored on the container\'s ' +
-  'temporary disk, which is wiped on every deploy — configure S3-compatible storage ' +
-  '(S3_BUCKET, S3_ENDPOINT, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY) and ask ' +
-  'the uploader to attach it again.';
+  'This file is no longer available. It was uploaded to the server\'s temporary disk before ' +
+  'durable storage was switched on, and that disk is wiped on every deploy — ask the uploader ' +
+  'to attach it again. New uploads are now stored durably.';
 
 /**
- * Storage abstraction.
+ * Storage abstraction, in order of preference:
  *
- * S3-compatible object storage is used whenever `S3_BUCKET` is set — AWS S3,
- * Cloudflare R2 and Supabase Storage all work; set `S3_ENDPOINT` for the latter
- * two. Without it the local-disk driver writes to the container filesystem,
- * which is fine for development but ephemeral in production.
+ * 1. S3-compatible object storage when `S3_BUCKET` is set (AWS S3, Cloudflare R2,
+ *    Supabase Storage — the last two need `S3_ENDPOINT`).
+ * 2. Postgres (`FileBlob`) so uploads survive container restarts and deploys.
+ * 3. The container's local disk — only for legacy rows written before 2 existed.
  */
 @Injectable()
 export class FilesService {
   private readonly logger = new Logger(FilesService.name);
 
-  constructor() {
+  constructor(private readonly prisma: PrismaService) {
     const config = this.s3Config();
     if (config) {
       this.logger.log(
         `File storage: bucket "${config.bucket}"${config.endpoint ? ` at ${config.endpoint}` : ''}`,
       );
-    } else if (process.env.NODE_ENV === 'production') {
-      this.logger.warn(
-        'File storage: container disk only. Uploaded files will disappear on the next deploy. ' +
-          'Set S3_BUCKET (and S3_ENDPOINT/S3_REGION/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY) for durable storage.',
+    } else {
+      this.logger.log(
+        'File storage: Postgres (FileBlob). Files survive deploys; configure S3_BUCKET for object storage.',
       );
     }
   }
@@ -98,7 +97,7 @@ export class FilesService {
       uploadUrl: `${process.env.API_PUBLIC_URL ?? ''}/api/files/local/${key}`,
       key,
       expiresIn: 600,
-      note: 'Local development mode — configure S3_BUCKET for production object storage.',
+      note: 'Uploads go through the API and are stored in Postgres.',
     };
   }
 
@@ -117,12 +116,17 @@ export class FilesService {
           Body: buffer,
         }),
       );
-    } else {
-      const root = process.env.FILE_UPLOAD_DIR ?? process.cwd();
-      const target = join(root, key);
-      await mkdir(join(target, '..'), { recursive: true });
-      await writeFile(target, buffer);
+      return { key };
     }
+
+    await this.prisma.fileBlob.create({
+      data: {
+        key,
+        mimeType: mimeType || 'application/octet-stream',
+        sizeBytes: buffer.length,
+        data: new Uint8Array(buffer),
+      },
+    });
     return { key };
   }
 
@@ -130,6 +134,14 @@ export class FilesService {
     if (this.isUsingObjectStorage()) {
       throw new Error('S3 objects should be returned as signed download links');
     }
+
+    const blob = await this.prisma.fileBlob.findUnique({
+      where: { key },
+      select: { data: true },
+    });
+    if (blob) return Buffer.from(blob.data);
+
+    // Legacy rows: written to the container disk before Postgres storage existed.
     const root = process.env.FILE_UPLOAD_DIR ?? process.cwd();
     const normalized = key.replaceAll('\\', '/');
     if (!normalized.startsWith('uploads/') || normalized.includes('..')) {
@@ -139,12 +151,26 @@ export class FilesService {
       return await readFile(join(root, normalized));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        // The usual cause is a deploy: the container disk was replaced, so the
-        // row exists but the bytes are gone. Return a clear 404, not a 500.
-        this.logger.warn(`Missing upload on disk: ${normalized}`);
+        this.logger.warn(`Missing upload (no blob, no disk file): ${normalized}`);
         throw new NotFoundException(MISSING_FILE_MESSAGE);
       }
       throw error;
+    }
+  }
+
+  /** Remove the stored bytes (blob or legacy disk file) for a deleted attachment. */
+  async deleteUpload(key: string) {
+    await this.prisma.fileBlob.deleteMany({ where: { key } });
+    if (this.isUsingObjectStorage()) return;
+
+    const root = process.env.FILE_UPLOAD_DIR ?? process.cwd();
+    const normalized = key.replaceAll('\\', '/');
+    if (!normalized.startsWith('uploads/') || normalized.includes('..')) return;
+    try {
+      const { rm } = await import('node:fs/promises');
+      await rm(join(root, normalized), { force: true });
+    } catch {
+      // Best effort: a missing legacy file is already gone.
     }
   }
 

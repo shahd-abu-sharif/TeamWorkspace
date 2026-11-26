@@ -311,6 +311,17 @@ model Epic {
   @@index([workspaceId, status])
 }
 
+/// Fallback object storage: when no S3 bucket is configured, uploaded bytes are
+/// kept in Postgres so a container restart cannot orphan them. Swap for S3/R2/
+/// Supabase Storage in production once available.
+model FileBlob {
+  key       String   @id
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+  createdAt DateTime @default(now())
+}
+
 /// A threaded discussion board per team — for decisions, not live chat.
 model TeamDiscussion {
   id          String           @id @default(cuid())
